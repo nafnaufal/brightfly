@@ -13,6 +13,23 @@ dan Direct2D, tanpa WebView, tanpa runtime XAML, dan tanpa dependency besar.
 - Nilai brightness dan pengaturan disimpan di `%APPDATA%\Brightfly\config.ini`
 - Autostart per-user lewat `HKCU\...\CurrentVersion\Run`
 
+## Instalasi
+
+Ekstrak `brightfly-<versi>-win64.zip`, lalu jalankan `install.cmd`. Installer
+per-user ini tidak butuh admin dan menyalin aplikasi ke
+`%LOCALAPPDATA%\Programs\Brightfly`, membuat shortcut Start Menu, mendaftarkan
+entri di Settings → Apps, dan mengaktifkan autostart.
+
+```powershell
+.\install.cmd                 # install + autostart + jalankan
+.\install.cmd -NoAutostart    # tanpa autostart
+.\install.cmd -NoStart        # tanpa langsung menjalankan
+```
+
+Untuk melepas, jalankan `uninstall.cmd` (ada di folder instalasi), atau lewat
+Settings → Apps. Config di `%APPDATA%\Brightfly` dipertahankan; tambahkan
+`-PurgeConfig` kalau ingin menghapusnya juga.
+
 ## Pemakaian
 
 Jalankan `brightfly.exe`. Icon matahari muncul di area tray.
@@ -58,8 +75,9 @@ cargo build --release
 .\scripts\package.ps1
 ```
 
-Menghasilkan `dist\brightfly-<versi>-win64.zip` berisi exe dan README. Tidak
-ada installer (NSIS/WiX tidak diperlukan); cukup ekstrak dan jalankan.
+Menghasilkan `dist\brightfly-<versi>-win64.zip` berisi exe, README, serta
+`install.cmd/ps1` dan `uninstall.cmd/ps1`. Instalasi dan uninstall tidak
+memakai admin; keduanya hanya menulis ke HKCU dan folder user.
 
 Icon dibuat ulang dengan:
 

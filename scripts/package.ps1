@@ -1,7 +1,7 @@
-# Membuat paket portable: dist/brightfly-<versi>-win64.zip
+# Membuat paket distribusi: dist/brightfly-<versi>-win64.zip
 #
-# Isi paket: brightfly.exe dan README.md. Tidak ada installer; cukup
-# ekstrak lalu jalankan exe.
+# Isi paket: brightfly.exe, README.md, install.cmd/ps1, dan uninstall.cmd/ps1.
+# Installer per-user menyalin file ke %LOCALAPPDATA%\Programs\Brightfly.
 
 param(
     [switch]$SkipBuild
@@ -41,6 +41,9 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 Copy-Item $exe $stage
 Copy-Item (Join-Path $root "README.md") $stage
+foreach ($file in "install.ps1", "install.cmd", "uninstall.ps1", "uninstall.cmd") {
+    Copy-Item (Join-Path $root "scripts\$file") $stage
+}
 
 if (Test-Path $zip) {
     Remove-Item $zip -Force

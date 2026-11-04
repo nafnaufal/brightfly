@@ -1,7 +1,8 @@
 # Progress
 
 Diperbarui: pasca-fase 5 (rescan thread latar, ikon PNG, perbaikan klik tray,
-identitas monitor dari EDID, tutup otomatis saat klik di luar flyout).
+identitas monitor dari EDID, tutup otomatis saat klik di luar flyout, perbaikan
+angka "100", serta installer/uninstaller per-user).
 
 ## Status
 
@@ -36,10 +37,9 @@ Ikon dan version info:
 
 Packaging:
 
-- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (145.567 byte),
-  berisi `brightfly.exe` (310.272 byte) dan `README.md`. Zip sedikit lebih besar
-  dari versi sebelumnya meski exe jauh lebih kecil, karena resource PNG dan
-  kode sudah sulit dipadatkan lagi.
+- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (149.951 byte),
+  berisi `brightfly.exe` (310.272 byte), `README.md`, serta
+  `install.cmd/ps1` dan `uninstall.cmd/ps1`.
 - Zip diekstrak ke folder lain dan exe dijalankan: ✅ tray muncul,
   `--version` mencetak `brightfly 0.1.0`.
 
@@ -222,6 +222,86 @@ Perbaikan:
 | Unit test | `cargo test` | 29 lulus ✅ |
 | Clippy | `cargo clippy --all-targets` | 7 warning, semuanya pre-existing ✅ |
 
+## Perbaikan — angka "100" terpotong
+
+Gejala: pada brightness 100, digit terakhir turun ke baris kedua sehingga
+kartu menampilkan "10" di atas dan "0" di bawah.
+
+Penyebab: kolom angka hanya disisakan 20 DIP, cukup untuk dua digit pada font
+15 px. Format teks juga membiarkan DirectWrite memecah baris.
+
+Perbaikan di `src/ui/render.rs`:
+
+- `NUMBER_WIDTH_DIP` 20 → 28 DIP (cukup untuk tiga digit, termasuk padding).
+- `SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)` pada format angka, supaya
+  angka tidak pernah pecah baris lagi.
+
+| Uji | Metode | Hasil |
+|---|---|---|
+| Nilai 100 | screenshot flyout 192×48 pada DPI 100% | "100" satu baris, rata kanan ✅ |
+| Nilai 5 | screenshot flyout | "5" tetap satu baris, posisi benar ✅ |
+| Lebar kartu | screenshot | tetap 192×48; track tidak bertabrakan dengan angka ✅ |
+| Unit test | `cargo test` | 29 lulus ✅ |
+
+## Installer dan uninstaller per-user
+
+Installer berbentuk PowerShell, bukan MSI/NSIS/Inno Setup, mengikuti pola
+`scripts/package.ps1` yang sudah ada. Tidak butuh admin dan tidak memasang
+service.
+
+`scripts/install.ps1` (dipanggil `scripts/install.cmd`):
+
+- Mencari `brightfly.exe` di folder paket, folder script, lalu
+  `..\target\release`; `Find-Payload` mencari README dan uninstaller di
+  lokasi yang sama.
+- Menyalin exe, README, dan uninstaller ke
+  `%LOCALAPPDATA%\Programs\Brightfly`.
+- Membuat shortcut Start Menu.
+- Mendaftarkan entri `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Brightfly`
+  (`DisplayName`, `DisplayVersion`, `DisplayIcon`, `InstallLocation`,
+  `UninstallString`, `QuietUninstallString`, `EstimatedSize`, `NoModify=1`,
+  `NoRepair=1`) agar muncul di Settings → Apps.
+- Mengaktifkan autostart lewat nilai Run `Brightfly`; `-NoAutostart`
+  menghapusnya. `-NoStart` berguna untuk instalasi senyap.
+- Menghentikan instance lama sebelum menimpa exe.
+
+`scripts/uninstall.ps1` (dipanggil `scripts/uninstall.cmd`):
+
+- Menghentikan proses, menghapus entri Run, entri Apps & features, dan
+  shortcut Start Menu.
+- Config `%APPDATA%\Brightfly` dipertahankan; `-PurgeConfig` menghapusnya.
+- Kalau dijalankan dari folder instalasi, folder **tidak** dihapus langsung:
+  `cmd.exe` masih membaca file `.cmd` dari folder itu baris per baris. Script
+  menjadwalkan `rmdir` lewat proses `cmd` terpisah setelah pemanggil keluar.
+  Ini menghilangkan pesan `The system cannot find the path specified.` dan
+  exit code 1 yang muncul pada versi pertama.
+
+| Uji | Metode | Hasil |
+|---|---|---|
+| Install dari zip | ekstrak `dist\brightfly-0.1.0-win64.zip`, jalankan `install.cmd` | exit 0, folder terisi lengkap ✅ |
+| `-NoAutostart` | install ulang dengan flag | nilai Run tidak ada, exit 0 ✅ |
+| Registri | baca Run + Uninstall key | path exe berkutip, metadata lengkap ✅ |
+| Shortcut | cek `Start Menu\Programs\Brightfly.lnk` | ada, target exe instalasi ✅ |
+| Jalankan exe hasil install | `--version`, `probe`, `WM_TOGGLE` | 0.1.0, monitor terbaca, flyout terbuka ✅ |
+| Uninstall dari folder instalasi | jalankan `uninstall.cmd` | exit 0, tanpa pesan path, folder hilang ±2 dtk ✅ |
+| Config dipertahankan | uninstall biasa | `%APPDATA%\Brightfly\config.ini` tetap ada ✅ |
+| `-PurgeConfig` | uninstall dengan flag | folder config terhapus ✅ |
+| Sisa state | setelah uninstall | Run, Uninstall key, shortcut, proses, folder bersih ✅ |
+
+Pengukuran ulang setelah semua perubahan (release):
+
+| Uji | Hasil |
+|---|---|
+| Ukuran exe / zip | 310.272 byte / 149.951 byte |
+| Start sampai tray terdaftar | median 131,0 ms (119,0–214,3) |
+| Buka flyout | median 14,89 ms (11,05–33,85) |
+| CPU idle 60 dtk | 0 ms (0%) |
+| Working set idle | 10,6 MB WS, 1,6 MB private, 2 thread |
+| Working set flyout terbuka | 22,8 MB WS, 5,0 MB private, 8 thread |
+| CPU drag 150 gerakan | 0 ms (di bawah granularitas) |
+| `brightfly stress` | 200 perubahan dalam 309 ms, selisih akhir 0 poin |
+| Clippy | 7 warning bin / 8 warning test, semuanya pre-existing |
+
 ## Hasil gate (fase 0)
 
 Hardware uji: 1 monitor eksternal MSI.
@@ -333,8 +413,10 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   dicari di Windows SDK; resource hasil kompilasi diteruskan dengan
   `cargo:rustc-link-arg`. Tidak ada dependency build baru dan build tetap jalan
   (dengan warning) di mesin tanpa Windows SDK.
-- **Distribusi berupa zip portable.** PLAN mengizinkan zip saja; NSIS/WiX tidak tersedia
-  di mesin build dan installer tidak menambah nilai untuk aplikasi per-user tanpa service.
+- **Installer/uninstaller berupa script PowerShell per-user, bukan MSI/NSIS.** NSIS/WiX
+  tidak tersedia di mesin build dan tidak menambah nilai untuk aplikasi per-user tanpa
+  service. Script menangani shortcut, entri Apps & features, autostart, dan pembersihan
+  dengan hak user biasa; paket tetap berupa zip yang bisa langsung diekstrak.
 - **Enumerasi monitor saat display change/resume berjalan di thread latar.** Probe DDC
   bisa memblokir, jadi hasilnya dikirim lewat `mpsc` dan dipasang lewat
   `WM_RESCAN_DONE`; permintaan beruntun di-coalesce menjadi satu scan ulang. Enumerasi
@@ -394,8 +476,11 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   hasilnya kurang presisi dan belum diuji.
 - Wheel hanya aktif saat kursor berada di atas flyout (perilaku sama dengan flyout
   volume Windows), jadi tidak bisa diuji jarak jauh tanpa menjaga posisi kursor.
-- **Hanya tersedia paket zip, belum ada installer/uninstaller.** Autostart harus
-  dimatikan lewat menu sebelum exe dihapus.
+- **Installer tidak menandatangani exe.** SmartScreen bisa menampilkan peringatan
+  saat file diunduh dari internet; belum ada code signing.
+- **Uninstaller dijalankan dari folder instalasi menunda penghapusan folder
+  ±2 detik** supaya `cmd.exe` selesai membaca file `.cmd`. Ini disengaja, bukan
+  kegagalan.
 
 ## Cara menjalankan
 
@@ -415,7 +500,7 @@ cargo build --release
 
 ## Langkah berikutnya
 
-Fase 0–5 dan hardening pasca-fase 5 selesai. Pekerjaan lanjutan yang masuk akal:
-installer/uninstaller, serta pengujian di mesin multi-monitor, HDR, dan monitor
-yang lambat/menggantung. Uji pindah port fisik sudah bisa dilakukan kapan saja:
-config harus tetap memakai section EDID yang sama.
+Fase 0–5, hardening pasca-fase 5, dan installer/uninstaller selesai. Pekerjaan
+lanjutan yang masuk akal: pengujian di mesin multi-monitor, HDR, monitor yang
+lambat/menggantung, serta code signing. Uji pindah port fisik sudah bisa
+dilakukan kapan saja: config harus tetap memakai section EDID yang sama.
