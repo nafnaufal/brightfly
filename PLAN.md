@@ -158,15 +158,18 @@ Urutan panggilan (semua di `dxva2.dll`, tersedia di `windows` crate feature `Win
 6. Setelah selesai: `DestroyPhysicalMonitors(n, buf)`.
 
 **Identitas persisten** (untuk menyimpan nilai per monitor) — `szDevice` tidak stabil, dan
-`szPhysicalMonitorDescription` hampir selalu `"Generic PnP Monitor"`. Pakai device path:
+`szPhysicalMonitorDescription` hampir selalu `"Generic PnP Monitor"`. Device path lebih baik
+daripada `\\.\DISPLAYn`, tapi instance di dalamnya tetap berubah kalau kabel pindah port:
 
 ```
 EnumDisplayDevicesW(adapterName, 0, &dd, EDD_GET_DEVICE_INTERFACE_NAME)
 → dd.DeviceID = "\\?\DISPLAY#GSM5B7C#5&2b0f7f1&0&UID4352#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}"
+                ^^^^^^^ model               ^^^^^^^^^^^^^^^^^ instance per koneksi
 ```
 
-Itu dipakai sebagai key config. Catatan: pindah port kabel = key berubah, nilai lama dianggap
-tidak ada (fallback ke 50%).
+Karena itu kunci config diturunkan dari EDID (`\\?\...\Device Parameters\EDID` di registry):
+manufacturer + product code + nomor seri, mis. `GSM5B7C:ABC123`. Device path tetap disimpan
+di `MonitorInfo` untuk keperluan migrasi config lama.
 
 `max` di-cache per monitor setelah enumerasi pertama; nilainya tidak berubah selama sesi.
 
@@ -326,7 +329,7 @@ strip = true
 ## 7. Model data
 
 ```rust
-struct MonitorId(String);            // device path dari EnumDisplayDevicesW
+struct MonitorId(String);            // kunci EDID, fallback ke device path
 
 struct MonitorInfo {
     id: MonitorId,

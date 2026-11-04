@@ -30,7 +30,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use crate::autostart;
 use crate::config::{Config, MonitorConfig};
 use crate::monitor::ddc::{self, RawMonitor};
-use crate::monitor::{Method, State, Supervisor};
+use crate::monitor::{Method, MonitorInfo, State, Supervisor};
 use crate::ui::flyout::{self, Flyout};
 use crate::ui::render::Row;
 use crate::ui::tray::{self, Tray};
@@ -305,6 +305,66 @@ impl Controller {
     }
 }
 
+/// Pindahkan nilai dari section lama (device interface path) ke kunci EDID.
+///
+/// Section lama hanya cocok selama monitor terpasang di port yang sama, jadi
+/// migrasi dicocokkan lewat kode model di dalam path (`MSI30B9`). Nilai hanya
+/// dipindahkan kalau tidak ambigu: satu section lama dan satu monitor aktif
+/// dengan model itu. Selain itu dibiarkan supaya tidak salah tempel.
+fn adopt_legacy_config(config: &mut Config, monitors: &[MonitorInfo]) -> bool {
+    let mut migrated = false;
+
+    for monitor in monitors {
+        if config.monitors.contains_key(&monitor.id) {
+            continue;
+        }
+
+        let model = model_of(&monitor.path);
+        if model.is_empty() {
+            continue;
+        }
+
+        let same_model = monitors
+            .iter()
+            .filter(|other| model_of(&other.path) == model)
+            .count();
+        if same_model != 1 {
+            continue;
+        }
+
+        let legacy: Vec<String> = config
+            .monitors
+            .keys()
+            .filter(|key| is_legacy_key(key) && model_of(key) == model)
+            .cloned()
+            .collect();
+        if legacy.len() != 1 {
+            continue;
+        }
+
+        if let Some(entry) = config.monitors.remove(&legacy[0]) {
+            config.monitors.insert(monitor.id.clone(), entry);
+            migrated = true;
+        }
+    }
+
+    migrated
+}
+
+/// `\\?\DISPLAY#MSI30B9#7&...` → `MSI30B9`.
+fn model_of(path: &str) -> &str {
+    let Some(rest) = path.strip_prefix(r"\\?\") else {
+        return "";
+    };
+    let mut parts = rest.split('#');
+    let _class = parts.next();
+    parts.next().unwrap_or("")
+}
+
+fn is_legacy_key(key: &str) -> bool {
+    key.starts_with(r"\\?\")
+}
+
 fn menu_flags(checked: bool) -> windows::Win32::UI::WindowsAndMessaging::MENU_ITEM_FLAGS {
     let mut flags = MF_STRING;
     if checked {
@@ -386,13 +446,22 @@ pub fn run() -> ExitCode {
     // masih menyimpan nilai default tanpa entri registry yang benar-benar ada.
     config.start_with_windows = autostart::is_enabled();
 
+    let supervisor = Supervisor::new();
+
+    // Kunci config sekarang berasal dari EDID; pindahkan nilai dari section
+    // lama yang masih memakai device interface path.
+    if adopt_legacy_config(&mut config, &supervisor.monitors())
+        && let Err(error) = config.save()
+    {
+        eprintln!("Gagal menyimpan config hasil migrasi: {error}");
+    }
+
     let saved: BTreeMap<String, u8> = config
         .monitors
         .iter()
         .map(|(id, monitor)| (id.clone(), monitor.brightness))
         .collect();
 
-    let supervisor = Supervisor::new();
     supervisor.apply_config(&saved);
 
     let (rescan_tx, rescan_rx) = mpsc::channel();
@@ -518,5 +587,99 @@ unsafe extern "system" fn controller_wndproc(
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const LEGACY: &str = r"\\?\DISPLAY#MSI30B9#7&21ebfe3c&0&UID24646#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
+    const LEGACY_OTHER_PORT: &str =
+        r"\\?\DISPLAY#MSI30B9#7&b7543e2&1&UID4165#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
+
+    fn monitor(id: &str, path: &str) -> MonitorInfo {
+        MonitorInfo {
+            id: id.to_string(),
+            path: path.to_string(),
+            name: "MSI MP223 E2".to_string(),
+            device: r"\\.\DISPLAY1".to_string(),
+            physical_index: 0,
+            max_brightness: 100,
+            method: Method::Ddc,
+            pct: 55,
+            state: State::Ready,
+            stuck: false,
+        }
+    }
+
+    fn entry(brightness: u8) -> MonitorConfig {
+        MonitorConfig {
+            brightness,
+            method: Method::Ddc,
+        }
+    }
+
+    #[test]
+    fn extracts_model_from_interface_path() {
+        assert_eq!(model_of(LEGACY), "MSI30B9");
+        assert_eq!(model_of(r"\\.\DISPLAY1"), "");
+        assert_eq!(model_of("MSI30B9:PB9H304C03601"), "");
+    }
+
+    #[test]
+    fn migrates_value_from_section_with_other_port() {
+        let mut config = Config::default();
+        config
+            .monitors
+            .insert(LEGACY_OTHER_PORT.to_string(), entry(42));
+
+        let monitors = [monitor("MSI30B9:PB9H304C03601", LEGACY)];
+
+        assert!(adopt_legacy_config(&mut config, &monitors));
+        assert_eq!(config.monitors["MSI30B9:PB9H304C03601"].brightness, 42);
+        assert!(!config.monitors.contains_key(LEGACY_OTHER_PORT));
+    }
+
+    #[test]
+    fn keeps_existing_value_and_leaves_legacy_section() {
+        let mut config = Config::default();
+        config.monitors.insert(LEGACY.to_string(), entry(42));
+        config
+            .monitors
+            .insert("MSI30B9:PB9H304C03601".to_string(), entry(70));
+
+        let monitors = [monitor("MSI30B9:PB9H304C03601", LEGACY)];
+
+        // Kunci baru menang; section lama tidak dihapus karena migrasi tidak
+        // berjalan.
+        assert!(!adopt_legacy_config(&mut config, &monitors));
+        assert_eq!(config.monitors["MSI30B9:PB9H304C03601"].brightness, 70);
+    }
+
+    #[test]
+    fn skips_ambiguous_model_with_two_monitors() {
+        let mut config = Config::default();
+        config.monitors.insert(LEGACY.to_string(), entry(42));
+
+        let monitors = [
+            monitor("MSI30B9:A", LEGACY),
+            monitor("MSI30B9:B", LEGACY_OTHER_PORT),
+        ];
+
+        assert!(!adopt_legacy_config(&mut config, &monitors));
+        assert!(config.monitors.contains_key(LEGACY));
+    }
+
+    #[test]
+    fn skips_when_two_legacy_sections_share_model() {
+        let mut config = Config::default();
+        config.monitors.insert(LEGACY.to_string(), entry(42));
+        config.monitors.insert(LEGACY_OTHER_PORT.to_string(), entry(60));
+
+        let monitors = [monitor("MSI30B9:PB9H304C03601", LEGACY)];
+
+        assert!(!adopt_legacy_config(&mut config, &monitors));
+        assert_eq!(config.monitors.len(), 2);
     }
 }

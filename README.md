@@ -4,11 +4,12 @@ Slider brightness untuk monitor eksternal di Windows 11, dengan tampilan
 flyout yang meniru flyout volume Windows. Ditulis dengan Rust + Win32 native
 dan Direct2D, tanpa WebView, tanpa runtime XAML, dan tanpa dependency besar.
 
-- Ukuran exe ± 0,29 MB (termasuk icon multi-resolusi)
+- Ukuran exe ± 0,30 MB (termasuk icon multi-resolusi)
 - Idle ± 10,6 MB working set, 2 thread, CPU 0%
 - DDC/CI VCP `0x10`; gamma ramp sebagai fallback
 - Satu baris slider per monitor; sinkronisasi opsional
 - Rescan monitor di thread latar saat display berubah atau resume
+- Nilai per monitor dikunci dari EDID, jadi tetap dikenali walau kabel pindah port
 - Nilai brightness dan pengaturan disimpan di `%APPDATA%\Brightfly\config.ini`
 - Autostart per-user lewat `HKCU\...\CurrentVersion\Run`
 
@@ -76,5 +77,6 @@ Icon dibuat ulang dengan:
   lambat merespons atau menolak VCP `0x10`.
 - HDR, sleep/resume fisik, unplug/replug, dan multi-monitor nyata belum diuji
   menyeluruh; mesin pengembangan hanya memiliki satu monitor eksternal.
-- Device path monitor berubah bila kabel dipindah port, sehingga nilai
-  tersimpan tidak dikenali dan monitor kembali ke nilai bacaannya.
+- Kunci per monitor diambil dari nomor seri EDID. Monitor yang tidak
+  mencantumkan serial hanya dikenali sampai tingkat model, sehingga dua unit
+  identik akan berbagi nilai.

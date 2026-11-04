@@ -24,6 +24,7 @@ use windows::Win32::Graphics::Gdi::{
 };
 use windows::Win32::UI::WindowsAndMessaging::EDD_GET_DEVICE_INTERFACE_NAME;
 
+use super::edid;
 use super::{Error, Method};
 
 /// VCP code untuk brightness (MCCS standar).
@@ -31,7 +32,10 @@ pub const VCP_BRIGHTNESS: u8 = 0x10;
 
 /// Hasil enumerasi mentah, belum diikat ke worker.
 pub struct RawMonitor {
+    /// Kunci stabil dari EDID; fallback ke device interface path.
     pub id: String,
+    /// Device interface path (berubah kalau kabel pindah port).
+    pub path: String,
     pub name: String,
     pub device: String,
     pub hmonitor: isize,
@@ -90,7 +94,23 @@ pub fn enumerate() -> Vec<RawMonitor> {
     for h in handles {
         out.extend(probe(h, &names));
     }
+    disambiguate(&mut out);
     out
+}
+
+/// Dua monitor dengan EDID identik (model sama, tanpa nomor seri) akan
+/// menghasilkan kunci yang sama. Beri akhiran supaya keduanya tetap punya
+/// baris sendiri. Konsekuensinya nilai bisa bertukar kalau urutan enumerasi
+/// berubah; ini hanya terjadi pada monitor yang memang tidak bisa dibedakan.
+fn disambiguate(monitors: &mut [RawMonitor]) {
+    let mut seen: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for monitor in monitors.iter_mut() {
+        let count = seen.entry(monitor.id.clone()).or_insert(0);
+        *count += 1;
+        if *count > 1 {
+            monitor.id = format!("{}#{}", monitor.id, count);
+        }
+    }
 }
 
 /// Peta `\\.\DISPLAYn` → nama ramah dari EDID.
@@ -168,7 +188,7 @@ fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
         }
         let device = utf16z(&mi.szDevice);
 
-        let (id, name) = identity(&device);
+        let (id, path, name) = identity(&device);
         let name = names
             .iter()
             .find(|(gdi, _)| gdi.eq_ignore_ascii_case(&device))
@@ -181,6 +201,7 @@ fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
         if GetNumberOfPhysicalMonitorsFromHMONITOR(hmon, &mut count).is_err() || count == 0 {
             found.push(RawMonitor {
                 id,
+                path,
                 name,
                 device,
                 hmonitor,
@@ -196,6 +217,7 @@ fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
         if GetPhysicalMonitorsFromHMONITOR(hmon, &mut buf).is_err() {
             found.push(RawMonitor {
                 id,
+                path,
                 name,
                 device,
                 hmonitor,
@@ -228,6 +250,7 @@ fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
 
             found.push(RawMonitor {
                 id: if index == 0 { id.clone() } else { format!("{id}#{index}") },
+                path: path.clone(),
                 name: name.clone(),
                 device: device.clone(),
                 hmonitor,
@@ -243,8 +266,12 @@ fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
     found
 }
 
-/// Kembalikan (id stabil, nama ramah) untuk sebuah `\\.\DISPLAYn`.
-unsafe fn identity(device: &str) -> (String, String) {
+/// Kembalikan (id stabil, device interface path, nama ramah) untuk `\\.\DISPLAYn`.
+///
+/// Id diturunkan dari EDID supaya nilai tersimpan tetap ketemu walau kabel
+/// dipindah ke port lain. Kalau EDID tidak terbaca, path dipakai sebagai id
+/// (perilaku lama).
+unsafe fn identity(device: &str) -> (String, String, String) {
     unsafe {
         let wide: Vec<u16> = device.encode_utf16().chain(std::iter::once(0)).collect();
         let mut dd = DISPLAY_DEVICEW::default();
@@ -259,14 +286,20 @@ unsafe fn identity(device: &str) -> (String, String) {
         .as_bool();
 
         if !ok {
-            return (device.to_string(), device.to_string());
+            return (device.to_string(), device.to_string(), device.to_string());
         }
 
-        let id = utf16z(&dd.DeviceID);
+        let path = utf16z(&dd.DeviceID);
         let name = utf16z(&dd.DeviceString);
-        let id = if id.is_empty() { device.to_string() } else { id };
+        let path = if path.is_empty() { device.to_string() } else { path };
         let name = if name.is_empty() { device.to_string() } else { name };
-        (id, name)
+
+        let id = edid::read(&path)
+            .and_then(|bytes| edid::parse(&bytes))
+            .map(|edid| edid.key())
+            .unwrap_or_else(|| path.clone());
+
+        (id, path, name)
     }
 }
 

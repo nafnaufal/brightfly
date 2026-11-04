@@ -1,6 +1,7 @@
 # Progress
 
-Diperbarui: pasca-fase 5 (rescan thread latar, ikon PNG, perbaikan klik tray).
+Diperbarui: pasca-fase 5 (rescan thread latar, ikon PNG, perbaikan klik tray,
+identitas monitor dari EDID).
 
 ## Status
 
@@ -35,18 +36,18 @@ Ikon dan version info:
 
 Packaging:
 
-- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (137.658 byte),
-  berisi `brightfly.exe` (294.400 byte) dan `README.md`. Zip sedikit lebih besar
-  dari versi sebelumnya meski exe jauh lebih kecil, karena resource PNG sudah
-  terkompresi sehingga keseluruhan exe lebih sulit dipadatkan lagi.
+- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (145.206 byte),
+  berisi `brightfly.exe` (309.760 byte) dan `README.md`. Zip sedikit lebih besar
+  dari versi sebelumnya meski exe jauh lebih kecil, karena resource PNG dan
+  kode sudah sulit dipadatkan lagi.
 - Zip diekstrak ke folder lain dan exe dijalankan: ✅ tray muncul,
   `--version` mencetak `brightfly 0.1.0`.
 
 | Uji | Metode | Hasil |
 |---|---|---|
-| Ukuran exe | `target\release\brightfly.exe` | 294.400 byte (0,29 MB; target ≤3 MB) ✅ |
-| Start sampai tray terdaftar | 5× start, poll `Shell_NotifyIconGetRect` | median 117 ms (116–191; target ≤300 ms) ✅ |
-| Waktu buka flyout | `WM_TOGGLE` + `UpdateWindow`, 10× | median 16,2 ms (12,5–24,7; target ≤60 ms) ✅ |
+| Ukuran exe | `target\release\brightfly.exe` | 309.760 byte (0,30 MB; target ≤3 MB) ✅ |
+| Start sampai tray terdaftar | 5× start, poll `Shell_NotifyIconGetRect` | median 121 ms (116–197; target ≤300 ms) ✅ |
+| Waktu buka flyout | `WM_TOGGLE` + `UpdateWindow`, 10× | median 18,0 ms (10,7–34,9; target ≤60 ms) ✅ |
 | Handler `WM_DISPLAYCHANGE` | `SendMessageW` saat flyout terbuka | 0,90 ms (enumerasi pindah ke thread latar) ✅ |
 | Handler resume | `WM_POWERBROADCAST` + `PBT_APMRESUMEAUTOMATIC` | 1,36 ms ✅ |
 | CPU idle | 60 detik, `TotalProcessorTime`, flyout dipastikan tertutup | 0 ms (target 0%) ✅ |
@@ -129,6 +130,49 @@ Perbaikan:
 | Escape | `keybd_event(VK_ESCAPE)` | menu tertutup ✅ |
 | Build release | ulangi seluruh urutan di atas pada exe release | hasil sama ✅ |
 | Unit test | `cargo test` | 16 lulus ✅ |
+
+## Identitas monitor dari EDID
+
+Sebelumnya kunci config adalah device interface path
+(`\\?\DISPLAY#MSI30B9#7&21ebfe3c&0&UID24646#{...}`). Bagian instance di dalam
+path dibuat Windows per koneksi, jadi kabel yang pindah port membuat nilai
+tersimpan tidak ditemukan dan monitor kembali ke bacaan hardware.
+
+Bukti di mesin uji: registry punya **dua** entri untuk monitor yang sama —
+
+```
+MSI30B9\7&21ebfe3c&0&UID24646   EDID serial 'PB9H304C03601'
+MSI30B9\7&b7543e2&1&UID4165    EDID serial 'PB9H304C03601'
+```
+
+Perubahan:
+
+- Modul baru `src/monitor/edid.rs` membaca blob EDID dari
+  `HKLM\SYSTEM\CurrentControlSet\Enum\<class>\<hardware id>\<instance>\Device Parameters`
+  (path diturunkan dari device interface path), lalu mengambil kode pabrikan,
+  kode produk, dan nomor seri.
+- Nomor seri diprioritaskan dari descriptor 0x0F (teks), lalu angka di header
+  EDID. Karakter yang merusak nama section INI (`[`, `]`, `#`) diganti `_`.
+- Kunci config menjadi `MSI30B9:PB9H304C03601`. Kalau EDID tidak terbaca,
+  device path tetap dipakai sebagai fallback (perilaku lama).
+- `MonitorInfo` menyimpan `path` terpisah dari `id`, khusus untuk migrasi.
+- Migrasi config lama berjalan saat start: nilai dari section lama dipindahkan
+  ke kunci EDID hanya kalau tidak ambigu — satu section lama dan satu monitor
+  aktif dengan kode model yang sama. Selain itu dibiarkan, supaya dua unit
+  identik tidak saling menimpa nilai.
+- Dua monitor dengan EDID identik (model sama, tanpa nomor seri) mendapat
+  akhiran `#2`, `#3` agar tetap punya baris sendiri.
+
+| Uji | Metode | Hasil |
+|---|---|---|
+| Baca EDID nyata | `read()` + `parse()` pada registry mesin uji | `MSI30B9`, serial `PB9H304C03601` ✅ |
+| `probe` | `brightfly probe` | `id: MSI30B9:PB9H304C03601` ✅ |
+| Migrasi dari port yang sekarang | config lama `UID24646`, brightness 55 | `[MSI30B9:PB9H304C03601] brightness=55` ✅ |
+| Migrasi dari port lain | config `UID4165` brightness 42, monitor di `UID24646` | monitor jadi 42%, config ditulis ulang ke kunci EDID ✅ |
+| Slider menulis kunci baru | buka flyout, klik 66% | `brightness=66` di section EDID ✅ |
+| Klik tray (regresi) | klik kiri 1/2/3 + klik kanan | buka/tutup/buka, menu muncul ✅ |
+| Unit test | `cargo test` | 29 lulus (8 EDID + 5 migrasi baru) ✅ |
+| Start setelah tambah pembacaan registry | 5× start | median 121 ms (+4 ms) ✅ |
 
 ## Hasil gate (fase 0)
 
@@ -289,8 +333,12 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
 - **Sinkronisasi dua monitor nyata dan unplug/replug fisik belum diuji** karena mesin uji
   hanya punya satu monitor.
 - **Nama monitor panjang dipotong di kartu 192 px** (satu baris, tanpa tooltip).
-- **Device path berubah kalau kabel pindah port**, sehingga nilai tersimpan tidak
-  ditemukan dan monitor kembali ke nilai bacaannya saat itu.
+- **Monitor tanpa nomor seri di EDID hanya dikenali sampai tingkat model.** Dua unit
+  identik akan berbagi nilai; kalau tidak ada serial sama sekali, nilai bisa bertukar
+  saat urutan enumerasi berubah. Monitor uji punya serial, jadi kasus ini belum diuji.
+- **Migrasi config lama melewati monitor yang ambigu.** Kalau ada dua section lama
+  dengan model sama, nilai tidak dipindahkan (lebih baik kehilangan nilai daripada
+  salah tempel).
 - **`method` di config belum dipakai untuk memaksa metode.** Probe selalu menentukan
   DDC vs gamma; config hanya menyimpan hasilnya.
 - **`step` hanya bisa diubah lewat file config**, belum ada kontrol di UI.
@@ -321,4 +369,5 @@ cargo build --release
 
 Fase 0–5 dan hardening pasca-fase 5 selesai. Pekerjaan lanjutan yang masuk akal:
 installer/uninstaller, serta pengujian di mesin multi-monitor, HDR, dan monitor
-yang lambat/menggantung.
+yang lambat/menggantung. Uji pindah port fisik sudah bisa dilakukan kapan saja:
+config harus tetap memakai section EDID yang sama.

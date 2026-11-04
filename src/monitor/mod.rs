@@ -4,6 +4,7 @@
 //! dijalankan di worker thread masing-masing monitor (lihat `worker.rs`).
 
 pub mod ddc;
+pub mod edid;
 pub mod gamma;
 pub mod worker;
 
@@ -67,8 +68,11 @@ impl State {
 /// Snapshot data satu monitor. Murah untuk dikirim ke UI.
 #[derive(Debug, Clone)]
 pub struct MonitorInfo {
-    /// Device interface path, stabil selama kabel tidak pindah port.
+    /// Kunci stabil dari EDID (mis. `MSI30B9:PB9H304C03601`), atau device
+    /// interface path kalau EDID tidak terbaca.
     pub id: String,
+    /// Device interface path; berubah kalau kabel pindah port.
+    pub path: String,
     /// Nama ramah dari EDID, fallback ke `\\.\DISPLAYn`.
     pub name: String,
     /// Nama GDI, contoh `\\.\DISPLAY1`.

@@ -51,6 +51,7 @@ struct Ctx {
 
 pub struct MonitorWorker {
     id: String,
+    path: String,
     name: String,
     device: String,
     index: u32,
@@ -95,6 +96,7 @@ impl MonitorWorker {
 
         Self {
             id: m.id,
+            path: m.path,
             name: m.name,
             device: m.device,
             index: m.physical_index,
@@ -123,6 +125,7 @@ impl MonitorWorker {
         let guard = self.lock();
         MonitorInfo {
             id: self.id.clone(),
+            path: self.path.clone(),
             name: self.name.clone(),
             device: self.device.clone(),
             physical_index: self.index,
@@ -383,6 +386,7 @@ mod tests {
     fn raw(id: &str, pct: u8) -> RawMonitor {
         RawMonitor {
             id: id.to_string(),
+            path: format!(r"\\?\DISPLAY#TEST#{id}"),
             name: "Test".to_string(),
             device: r"\\.\DISPLAY1".to_string(),
             hmonitor: 0,
