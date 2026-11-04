@@ -1,6 +1,6 @@
 # Progress
 
-Diperbarui: fase 5 selesai.
+Diperbarui: pasca-fase 5 (rescan thread latar, ikon PNG).
 
 ## Status
 
@@ -20,9 +20,11 @@ Diperbarui: fase 5 selesai.
 
 Ikon dan version info:
 
-- `scripts/make-icon.ps1` menghasilkan `assets/brightfly.ico` dengan 8 ukuran
-  (16/20/24/32/40/48/64/256, 32-bit BGRA). Frame 256 diverifikasi terpisah
-  dengan `System.Drawing.Icon` → PNG.
+- `scripts/make-icon.ps1` menghasilkan `assets/brightfly.ico` (48.496 byte) dengan
+  8 ukuran (16/20/24/32/40/48/64/256). Ukuran 16–64 disimpan sebagai DIB 32-bit;
+  frame 256 disimpan sebagai PNG (5.474 byte). Frame PNG diverifikasi dengan
+  mengekstraknya langsung dari ICO, karena `System.Drawing.Icon.ToBitmap()`
+  tidak mendukung frame PNG.
 - `build.rs` mencari `rc.exe` (env `RC`, Windows SDK, lalu PATH) dan
   mengompilasi resource dengan icon ID `1` + `VERSIONINFO`. Kalau `rc.exe`
   tidak ada, build tetap jalan dengan warning dan tray memakai icon bawaan.
@@ -33,19 +35,23 @@ Ikon dan version info:
 
 Packaging:
 
-- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (128.817 byte),
-  berisi `brightfly.exe` (542.208 byte) dan `README.md`.
+- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (137.658 byte),
+  berisi `brightfly.exe` (294.400 byte) dan `README.md`. Zip sedikit lebih besar
+  dari versi sebelumnya meski exe jauh lebih kecil, karena resource PNG sudah
+  terkompresi sehingga keseluruhan exe lebih sulit dipadatkan lagi.
 - Zip diekstrak ke folder lain dan exe dijalankan: ✅ tray muncul,
   `--version` mencetak `brightfly 0.1.0`.
 
 | Uji | Metode | Hasil |
 |---|---|---|
-| Ukuran exe | `target\release\brightfly.exe` | 542.208 byte (0,52 MB; target ≤3 MB) ✅ |
-| Start sampai tray terdaftar | 5× start, poll `Shell_NotifyIconGetRect` | median 117 ms (117–189; target ≤300 ms) ✅ |
-| Waktu buka flyout | `WM_TOGGLE` + `UpdateWindow`, 10× | median 19,3 ms (12,6–36,1; target ≤60 ms) ✅ |
-| CPU idle | 60 detik, `TotalProcessorTime` | 0 ms (<15,6 ms granularitas; target 0%) ✅ |
-| Working set idle | 60 detik setelah start | 10,5 MB WS, 1,6 MB private, 2 thread ✅ |
-| Working set flyout terbuka | 700 ms setelah show | 22,7 MB WS, 5,0 MB private, 8 thread (WS target ≤25 MB) ✅ |
+| Ukuran exe | `target\release\brightfly.exe` | 294.400 byte (0,29 MB; target ≤3 MB) ✅ |
+| Start sampai tray terdaftar | 5× start, poll `Shell_NotifyIconGetRect` | median 117 ms (116–191; target ≤300 ms) ✅ |
+| Waktu buka flyout | `WM_TOGGLE` + `UpdateWindow`, 10× | median 16,2 ms (12,5–24,7; target ≤60 ms) ✅ |
+| Handler `WM_DISPLAYCHANGE` | `SendMessageW` saat flyout terbuka | 0,90 ms (enumerasi pindah ke thread latar) ✅ |
+| Handler resume | `WM_POWERBROADCAST` + `PBT_APMRESUMEAUTOMATIC` | 1,36 ms ✅ |
+| CPU idle | 60 detik, `TotalProcessorTime`, flyout dipastikan tertutup | 0 ms (target 0%) ✅ |
+| Working set idle | 60 detik setelah start | 10,6 MB WS, 1,6 MB private, 2 thread ✅ |
+| Working set flyout terbuka | 700 ms setelah show | 22,9 MB WS, 5,3 MB private, 8 thread (WS target ≤25 MB) ✅ |
 | CPU drag | 150 gerakan, 2,5 detik | <15,6 ms CPU (di bawah granularitas) ✅ |
 | Drag cepat / coalescing | `brightfly stress` | 200 perubahan dalam 305 ms, selisih akhir 0 poin ✅ |
 | Build tanpa `rc.exe` | jalur fallback di `build.rs` | belum diuji langsung; fallback memakai icon bawaan Windows |
@@ -61,7 +67,31 @@ Catatan pengukuran: start dihitung dari `Start-Process` sampai
 thread berfluktuasi tergantung waktu sampel (thread helper DDC/WARP bisa
 sudah berhenti); angka idle 2 dan flyout 8 adalah sampel 60 detik/700 ms.
 
-## Fase 4 — hasil uji
+## Pasca-fase 5 — rescan di thread latar
+
+Sebelumnya `WM_DISPLAYCHANGE` dan resume memanggil `ddc::enumerate()` langsung
+di UI thread: monitor yang lambat bisa membekukan UI beberapa detik. Sekarang:
+
+- `Supervisor::apply_scan()` hanya memasang hasil enumerasi; tidak ada I/O.
+- Controller memakai `mpsc` + thread `brightfly-scan`; thread mengirim
+  `Vec<RawMonitor>` lalu `WM_RESCAN_DONE` ke window controller.
+- Permintaan yang datang saat scan berjalan hanya menandai `rescan_pending`;
+  hasil pertama diterapkan, lalu scan diulang sekali dengan keadaan terbaru.
+- Resume tetap memanggil `refresh_all()` setelah scan terakhir.
+- Nilai baris dipertahankan dengan prioritas: nilai yang sedang tampil →
+  config → bacaan hardware. Tiga unit test baru mengunci urutan ini.
+- Enumerasi awal saat start sengaja tetap sinkron, supaya klik tray pertama
+  tidak menampilkan flyout kosong. Tray sudah terdaftar sebelum enumerasi
+  dimulai, jadi icon tetap muncul lebih dulu.
+
+| Uji | Metode | Hasil |
+|---|---|---|
+| Handler display change | `SendMessageW(WM_DISPLAYCHANGE)` saat flyout terbuka | 0,90 ms; flyout langsung tertutup ✅ |
+| Buka setelah scan | tunggu 700 ms, buka flyout, klik 50% | visible, monitor 50% ✅ |
+| Dua display change beruntun | kirim dua pesan berjarak 80 ms, tunggu 900 ms, klik 60% | scan diulang, monitor 60% ✅ |
+| Resume | kirim `PBT_APMRESUMEAUTOMATIC`, buka, klik 30% | visible, monitor 30%, config ikut ✅ |
+| Unit test | `cargo test` | 16 lulus (3 test prioritas nilai baru) ✅ |
+| Monitor benar-benar lambat | — | tidak bisa diuji; tidak ada monitor yang menggantung |
 
 ## Hasil gate (fase 0)
 
@@ -176,6 +206,13 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   (dengan warning) di mesin tanpa Windows SDK.
 - **Distribusi berupa zip portable.** PLAN mengizinkan zip saja; NSIS/WiX tidak tersedia
   di mesin build dan installer tidak menambah nilai untuk aplikasi per-user tanpa service.
+- **Enumerasi monitor saat display change/resume berjalan di thread latar.** Probe DDC
+  bisa memblokir, jadi hasilnya dikirim lewat `mpsc` dan dipasang lewat
+  `WM_RESCAN_DONE`; permintaan beruntun di-coalesce menjadi satu scan ulang. Enumerasi
+  awal saat start tetap sinkron supaya flyout pertama tidak kosong.
+- **Frame 256 ikon disimpan sebagai PNG di dalam ICO.** Windows mendukungnya dan
+  ukurannya turun dari 270.376 ke 5.474 byte; frame kecil tetap DIB agar kompatibel
+  dengan shell lama.
 
 ## Penyimpangan dari plan
 
@@ -208,9 +245,10 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
 
 - **Scroll di atas icon tray tidak diimplementasikan** (keputusan produk); lihat
   penyimpangan di atas.
-- **Enumerasi + probe masih berjalan di UI thread** saat start, `WM_DISPLAYCHANGE`, dan
-  resume. Dengan banyak monitor atau monitor yang lambat, flyout bisa tertunda sesaat.
-  Kandidat perbaikan: pindahkan rescan ke thread terpisah.
+- **Enumerasi awal saat start masih berjalan di UI thread** sebelum message loop;
+  ini disengaja agar flyout pertama tidak kosong. Display change dan resume sudah
+  memakai thread latar. Monitor yang benar-benar menggantung saat scan belum bisa
+  diuji di mesin ini.
 - **Sinkronisasi dua monitor nyata dan unplug/replug fisik belum diuji** karena mesin uji
   hanya punya satu monitor.
 - **Nama monitor panjang dipotong di kartu 192 px** (satu baris, tanpa tooltip).
@@ -225,9 +263,6 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   volume Windows), jadi tidak bisa diuji jarak jauh tanpa menjaga posisi kursor.
 - **Hanya tersedia paket zip, belum ada installer/uninstaller.** Autostart harus
   dimatikan lewat menu sebelum exe dihapus.
-- **Frame 256 pada ICO disimpan sebagai DIB**, sehingga resource icon menambah
-  ±313 KB ke exe. Bisa dikonversi ke PNG untuk menghemat ±270 KB bila ukuran
-  menjadi masalah; target ≤3 MB sudah terpenuhi.
 
 ## Cara menjalankan
 
@@ -247,6 +282,6 @@ cargo build --release
 
 ## Langkah berikutnya
 
-Fase 0–5 selesai. Pekerjaan lanjutan yang masuk akal: installer/uninstaller,
-pengujian di mesin multi-monitor/HDR, dan memindahkan rescan monitor ke thread
-terpisah bila jumlah monitor bertambah.
+Fase 0–5 dan hardening pasca-fase 5 selesai. Pekerjaan lanjutan yang masuk akal:
+installer/uninstaller, serta pengujian di mesin multi-monitor, HDR, dan monitor
+yang lambat/menggantung.

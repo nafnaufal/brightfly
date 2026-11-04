@@ -1,7 +1,10 @@
 //! Controller: window tersembunyi yang memegang tray, flyout, dan supervisor.
 
 use std::collections::BTreeMap;
+use std::ffi::c_void;
 use std::process::ExitCode;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread;
 
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::{
@@ -26,6 +29,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 use crate::autostart;
 use crate::config::{Config, MonitorConfig};
+use crate::monitor::ddc::{self, RawMonitor};
 use crate::monitor::{Method, State, Supervisor};
 use crate::ui::flyout::{self, Flyout};
 use crate::ui::render::Row;
@@ -37,6 +41,8 @@ const WM_TOGGLE: u32 = WM_APP + 2;
 pub const WM_SET_BRIGHTNESS: u32 = WM_APP + 3;
 /// Dikirim flyout saat tertutup supaya config segera disimpan.
 pub const WM_FLYOUT_HIDDEN: u32 = WM_APP + 4;
+/// Dikirim thread scan setelah enumerasi monitor selesai.
+const WM_RESCAN_DONE: u32 = WM_APP + 5;
 
 const TIMER_SAVE: usize = 1;
 const SAVE_DELAY_MS: u32 = 500;
@@ -56,6 +62,11 @@ struct Controller {
     shown_ids: Vec<String>,
     config: Config,
     config_dirty: bool,
+    rescan_tx: Sender<Vec<RawMonitor>>,
+    rescan_rx: Receiver<Vec<RawMonitor>>,
+    rescanning: bool,
+    rescan_pending: bool,
+    refresh_after_scan: bool,
 }
 
 impl Controller {
@@ -217,7 +228,7 @@ impl Controller {
     /// Monitor ditambah/dilepas atau resolusi berubah.
     fn on_display_change(&mut self) {
         self.flyout.hide();
-        self.supervisor.rescan();
+        self.request_rescan(false);
         self.flush_config();
     }
 
@@ -225,9 +236,67 @@ impl Controller {
     /// handle fisik saat sistem tidur.
     fn on_resume(&mut self) {
         self.flyout.hide();
-        self.supervisor.rescan();
-        self.supervisor.refresh_all();
+        self.request_rescan(true);
         self.flush_config();
+    }
+
+    /// Enumerasi monitor berjalan di thread sendiri: probe DDC bisa memblokir
+    /// beberapa detik dan tidak boleh membekukan UI.
+    fn request_rescan(&mut self, refresh_after: bool) {
+        self.refresh_after_scan |= refresh_after;
+        if self.rescanning {
+            // Scan yang sedang berjalan mungkin sudah membaca keadaan lama;
+            // ulangi sekali lagi setelah hasilnya masuk.
+            self.rescan_pending = true;
+            return;
+        }
+        self.start_scan();
+    }
+
+    fn start_scan(&mut self) {
+        let sender = self.rescan_tx.clone();
+        // HWND bukan `Send`; simpan sebagai isize dan bangun ulang di thread.
+        let hwnd = self.hwnd.0 as isize;
+        self.rescanning = true;
+
+        let spawned = thread::Builder::new()
+            .name("brightfly-scan".to_string())
+            .spawn(move || {
+                let monitors = ddc::enumerate();
+                if sender.send(monitors).is_ok() {
+                    unsafe {
+                        let _ = PostMessageW(
+                            Some(HWND(hwnd as *mut c_void)),
+                            WM_RESCAN_DONE,
+                            WPARAM(0),
+                            LPARAM(0),
+                        );
+                    }
+                }
+            });
+
+        if spawned.is_err() {
+            self.rescanning = false;
+            eprintln!("Gagal memulai scan monitor.");
+        }
+    }
+
+    fn on_rescan_done(&mut self) {
+        self.rescanning = false;
+
+        if let Ok(monitors) = self.rescan_rx.try_recv() {
+            self.supervisor.apply_scan(monitors);
+
+            if self.refresh_after_scan && !self.rescan_pending {
+                self.supervisor.refresh_all();
+                self.refresh_after_scan = false;
+            }
+        }
+
+        if self.rescan_pending {
+            self.rescan_pending = false;
+            self.start_scan();
+        }
     }
 }
 
@@ -321,6 +390,8 @@ pub fn run() -> ExitCode {
     let supervisor = Supervisor::new();
     supervisor.apply_config(&saved);
 
+    let (rescan_tx, rescan_rx) = mpsc::channel();
+
     let controller = Box::new(Controller {
         hwnd,
         flyout: flyout_window,
@@ -329,6 +400,11 @@ pub fn run() -> ExitCode {
         shown_ids: Vec::new(),
         config,
         config_dirty: false,
+        rescan_tx,
+        rescan_rx,
+        rescanning: false,
+        rescan_pending: false,
+        refresh_after_scan: false,
     });
     unsafe {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(controller) as isize);
@@ -425,6 +501,10 @@ unsafe extern "system" fn controller_wndproc(
             }
             WM_FLYOUT_HIDDEN if !pointer.is_null() => {
                 (*pointer).flush_config();
+                LRESULT(0)
+            }
+            WM_RESCAN_DONE if !pointer.is_null() => {
+                (*pointer).on_rescan_done();
                 LRESULT(0)
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),

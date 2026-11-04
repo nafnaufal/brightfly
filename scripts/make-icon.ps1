@@ -66,37 +66,48 @@ foreach ($size in $sizes) {
     $background.Dispose()
     $g.Dispose()
 
-    # Ambil piksel BGRA lalu balik urutannya: DIB di dalam ICO disimpan
-    # dari bawah ke atas.
-    $rect = New-Object System.Drawing.Rectangle(0, 0, $size, $size)
-    $bits = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $stride = $bits.Stride
-    $pixels = New-Object byte[] ($stride * $size)
-    [System.Runtime.InteropServices.Marshal]::Copy($bits.Scan0, $pixels, 0, $pixels.Length)
-    $bmp.UnlockBits($bits)
-    $bmp.Dispose()
+    # Ukuran 256 disimpan sebagai PNG: Windows mendukung frame PNG di ICO
+    # dan ukurannya jauh lebih kecil daripada DIB mentah. Ukuran kecil tetap
+    # DIB karena beberapa shell lama tidak membaca PNG di dalam ICO.
+    if ($size -ge 256) {
+        $pngStream = New-Object System.IO.MemoryStream
+        $bmp.Save($pngStream, [System.Drawing.Imaging.ImageFormat]::Png)
+        $data = $pngStream.ToArray()
+        $pngStream.Dispose()
+        $bmp.Dispose()
+    } else {
+        # Ambil piksel BGRA lalu balik urutannya: DIB di dalam ICO disimpan
+        # dari bawah ke atas.
+        $rect = New-Object System.Drawing.Rectangle(0, 0, $size, $size)
+        $bits = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $stride = $bits.Stride
+        $pixels = New-Object byte[] ($stride * $size)
+        [System.Runtime.InteropServices.Marshal]::Copy($bits.Scan0, $pixels, 0, $pixels.Length)
+        $bmp.UnlockBits($bits)
+        $bmp.Dispose()
 
-    $xor = New-Object byte[] ($size * $size * 4)
-    for ($y = 0; $y -lt $size; $y++) {
-        [Array]::Copy($pixels, ($size - 1 - $y) * $stride, $xor, $y * $size * 4, $size * 4)
+        $xor = New-Object byte[] ($size * $size * 4)
+        for ($y = 0; $y -lt $size; $y++) {
+            [Array]::Copy($pixels, ($size - 1 - $y) * $stride, $xor, $y * $size * 4, $size * 4)
+        }
+
+        $maskStride = [int]([Math]::Ceiling($size / 32.0) * 4)
+        $andMask = New-Object byte[] ($maskStride * $size)  # semua 0: alpha yang menentukan
+
+        $header = New-Object byte[] 40
+        [Array]::Copy([BitConverter]::GetBytes([uint32]40), 0, $header, 0, 4)
+        [Array]::Copy([BitConverter]::GetBytes([int32]$size), 0, $header, 4, 4)
+        [Array]::Copy([BitConverter]::GetBytes([int32]($size * 2)), 0, $header, 8, 4)
+        [Array]::Copy([BitConverter]::GetBytes([uint16]1), 0, $header, 12, 2)
+        [Array]::Copy([BitConverter]::GetBytes([uint16]32), 0, $header, 14, 2)
+        [Array]::Copy([BitConverter]::GetBytes([uint32]0), 0, $header, 16, 4)
+        [Array]::Copy([BitConverter]::GetBytes([uint32]($xor.Length + $andMask.Length)), 0, $header, 20, 4)
+
+        $data = New-Object byte[] ($header.Length + $xor.Length + $andMask.Length)
+        [Array]::Copy($header, 0, $data, 0, $header.Length)
+        [Array]::Copy($xor, 0, $data, $header.Length, $xor.Length)
+        [Array]::Copy($andMask, 0, $data, ($header.Length + $xor.Length), $andMask.Length)
     }
-
-    $maskStride = [int]([Math]::Ceiling($size / 32.0) * 4)
-    $andMask = New-Object byte[] ($maskStride * $size)  # semua 0: alpha yang menentukan
-
-    $header = New-Object byte[] 40
-    [Array]::Copy([BitConverter]::GetBytes([uint32]40), 0, $header, 0, 4)
-    [Array]::Copy([BitConverter]::GetBytes([int32]$size), 0, $header, 4, 4)
-    [Array]::Copy([BitConverter]::GetBytes([int32]($size * 2)), 0, $header, 8, 4)
-    [Array]::Copy([BitConverter]::GetBytes([uint16]1), 0, $header, 12, 2)
-    [Array]::Copy([BitConverter]::GetBytes([uint16]32), 0, $header, 14, 2)
-    [Array]::Copy([BitConverter]::GetBytes([uint32]0), 0, $header, 16, 4)
-    [Array]::Copy([BitConverter]::GetBytes([uint32]($xor.Length + $andMask.Length)), 0, $header, 20, 4)
-
-    $data = New-Object byte[] ($header.Length + $xor.Length + $andMask.Length)
-    [Array]::Copy($header, 0, $data, 0, $header.Length)
-    [Array]::Copy($xor, 0, $data, $header.Length, $xor.Length)
-    [Array]::Copy($andMask, 0, $data, ($header.Length + $xor.Length), $andMask.Length)
 
     $frames += [pscustomobject]@{ Size = $size; Data = $data }
 }

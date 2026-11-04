@@ -4,10 +4,11 @@ Slider brightness untuk monitor eksternal di Windows 11, dengan tampilan
 flyout yang meniru flyout volume Windows. Ditulis dengan Rust + Win32 native
 dan Direct2D, tanpa WebView, tanpa runtime XAML, dan tanpa dependency besar.
 
-- Ukuran exe ± 0,52 MB (termasuk icon multi-resolusi)
-- Idle ± 10,5 MB working set, 2 thread, CPU 0%
+- Ukuran exe ± 0,29 MB (termasuk icon multi-resolusi)
+- Idle ± 10,6 MB working set, 2 thread, CPU 0%
 - DDC/CI VCP `0x10`; gamma ramp sebagai fallback
 - Satu baris slider per monitor; sinkronisasi opsional
+- Rescan monitor di thread latar saat display berubah atau resume
 - Nilai brightness dan pengaturan disimpan di `%APPDATA%\Brightfly\config.ini`
 - Autostart per-user lewat `HKCU\...\CurrentVersion\Run`
 

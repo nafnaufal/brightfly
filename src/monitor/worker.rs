@@ -237,6 +237,22 @@ fn execute(ctx: &Ctx, cmd: Cmd, original: Option<&Ramp>, current_pct: u8) -> Res
     }
 }
 
+/// Nilai untuk monitor hasil scan: nilai yang sedang ditampilkan lebih
+/// dipercaya daripada config, dan config lebih dipercaya daripada bacaan
+/// hardware saat monitor baru muncul.
+fn resolve_pct(
+    previous: &[(String, u8)],
+    saved: &BTreeMap<String, u8>,
+    monitor: &RawMonitor,
+) -> u8 {
+    previous
+        .iter()
+        .find(|(id, _)| *id == monitor.id)
+        .map(|(_, pct)| *pct)
+        .or_else(|| saved.get(&monitor.id).copied())
+        .unwrap_or(monitor.pct)
+}
+
 /// Kumpulan worker untuk semua monitor yang terdeteksi.
 pub struct Supervisor {
     workers: Vec<MonitorWorker>,
@@ -257,7 +273,10 @@ impl Supervisor {
             workers: Vec::new(),
             saved: Mutex::new(BTreeMap::new()),
         };
-        me.rescan();
+        // Enumerasi awal masih sinkron: supervisor harus siap sebelum message
+        // loop berjalan supaya klik tray pertama tidak menampilkan flyout kosong.
+        let raw = ddc::enumerate();
+        me.apply_scan(raw);
         me
     }
 
@@ -279,8 +298,12 @@ impl Supervisor {
         }
     }
 
-    /// Bangun ulang daftar monitor. Dipanggil saat `WM_DISPLAYCHANGE` atau resume.
-    pub fn rescan(&mut self) {
+    /// Pasang hasil enumerasi yang sudah selesai di background thread.
+    ///
+    /// Tidak ada I/O di sini: worker lama dihentikan dan worker baru dibuat,
+    /// lalu nilai sebelumnya dipertahankan supaya monitor yang sempat hilang
+    /// tidak kembali ke default.
+    pub fn apply_scan(&mut self, raw: Vec<RawMonitor>) {
         let previous: Vec<(String, u8)> =
             self.workers.iter().map(|w| (w.id(), w.pct())).collect();
 
@@ -290,14 +313,9 @@ impl Supervisor {
         self.workers.clear();
 
         let saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
-        for raw in ddc::enumerate() {
-            let pct = previous
-                .iter()
-                .find(|(id, _)| *id == raw.id)
-                .map(|(_, pct)| *pct)
-                .or_else(|| saved.get(&raw.id).copied())
-                .unwrap_or(raw.pct);
-            self.workers.push(MonitorWorker::spawn(raw, pct));
+        for monitor in raw {
+            let pct = resolve_pct(&previous, &saved, &monitor);
+            self.workers.push(MonitorWorker::spawn(monitor, pct));
         }
     }
 
@@ -355,5 +373,44 @@ impl Supervisor {
         for worker in &self.workers {
             worker.stop();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw(id: &str, pct: u8) -> RawMonitor {
+        RawMonitor {
+            id: id.to_string(),
+            name: "Test".to_string(),
+            device: r"\\.\DISPLAY1".to_string(),
+            hmonitor: 0,
+            physical_index: 0,
+            max: 100,
+            pct,
+            method: Method::Ddc,
+        }
+    }
+
+    #[test]
+    fn scan_keeps_value_currently_shown() {
+        let previous = vec![("a".to_string(), 63)];
+        let saved = BTreeMap::from([("a".to_string(), 20)]);
+        assert_eq!(resolve_pct(&previous, &saved, &raw("a", 80)), 63);
+    }
+
+    #[test]
+    fn scan_falls_back_to_saved_value() {
+        let previous = Vec::new();
+        let saved = BTreeMap::from([("a".to_string(), 20)]);
+        assert_eq!(resolve_pct(&previous, &saved, &raw("a", 80)), 20);
+    }
+
+    #[test]
+    fn scan_falls_back_to_hardware_value() {
+        let previous = Vec::new();
+        let saved = BTreeMap::new();
+        assert_eq!(resolve_pct(&previous, &saved, &raw("a", 80)), 80);
     }
 }
