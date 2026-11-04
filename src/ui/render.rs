@@ -50,7 +50,7 @@ pub const CARD_RADIUS_DIP: f32 = 8.0;
 const PAD_X_DIP: f32 = 12.0;
 const ICON_SIZE_DIP: f32 = 20.0;
 const GAP_DIP: f32 = 10.0;
-const NUMBER_WIDTH_DIP: f32 = 20.0;
+const NUMBER_WIDTH_DIP: f32 = 28.0;
 const TRACK_HEIGHT_DIP: f32 = 4.0;
 const THUMB_RADIUS_DIP: f32 = 7.0;
 /// Tinggi pita nama monitor di atas slider saat baris lebih dari satu.
@@ -331,6 +331,9 @@ impl Renderer {
             };
             let _ = value.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
             let _ = value.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            // "100" tidak boleh pecah jadi dua baris. Lebar kolom angka sudah
+            // disisakan 28 DIP untuk tiga digit.
+            let _ = value.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 
             let Ok(icon) = self.dwrite.CreateTextFormat(
                 w!("Segoe Fluent Icons"),
