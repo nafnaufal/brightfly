@@ -10,9 +10,12 @@ use std::time::Duration;
 
 use windows::core::{BOOL, PCWSTR};
 use windows::Win32::Devices::Display::{
-    DestroyPhysicalMonitors, GetNumberOfPhysicalMonitorsFromHMONITOR,
-    GetPhysicalMonitorsFromHMONITOR, GetVCPFeatureAndVCPFeatureReply, SetVCPFeature,
-    PHYSICAL_MONITOR,
+    DestroyPhysicalMonitors, DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes,
+    GetNumberOfPhysicalMonitorsFromHMONITOR, GetPhysicalMonitorsFromHMONITOR,
+    GetVCPFeatureAndVCPFeatureReply, QueryDisplayConfig, SetVCPFeature,
+    DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME, DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME,
+    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_SOURCE_DEVICE_NAME,
+    DISPLAYCONFIG_TARGET_DEVICE_NAME, PHYSICAL_MONITOR, QDC_ONLY_ACTIVE_PATHS,
 };
 use windows::Win32::Foundation::{HANDLE, LPARAM, RECT};
 use windows::Win32::Graphics::Gdi::{
@@ -79,14 +82,81 @@ pub fn enumerate() -> Vec<RawMonitor> {
         );
     }
 
+    // Nama ramah dibaca sekali untuk semua monitor: `QueryDisplayConfig`
+    // mengembalikan seluruh topologi, jadi tidak perlu dipanggil per handle.
+    let names = friendly_names();
+
     let mut out = Vec::new();
     for h in handles {
-        out.extend(probe(h));
+        out.extend(probe(h, &names));
     }
     out
 }
 
-fn probe(hmonitor: isize) -> Vec<RawMonitor> {
+/// Peta `\\.\DISPLAYn` → nama ramah dari EDID.
+///
+/// `EnumDisplayDevices` hanya memberi "Generic PnP Monitor". Nama asli
+/// (mis. "MSI MAG274QRF") ada di paket `DISPLAYCONFIG_TARGET_DEVICE_NAME`
+/// yang diambil lewat source device name sebagai penghubung ke `DISPLAYn`.
+fn friendly_names() -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    unsafe {
+        let mut path_count = 0u32;
+        let mut mode_count = 0u32;
+        if GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &mut path_count, &mut mode_count)
+            .is_err()
+            || path_count == 0
+        {
+            return out;
+        }
+
+        let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count as usize];
+        let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); mode_count as usize];
+
+        if QueryDisplayConfig(
+            QDC_ONLY_ACTIVE_PATHS,
+            &mut path_count,
+            paths.as_mut_ptr(),
+            &mut mode_count,
+            modes.as_mut_ptr(),
+            None,
+        )
+        .is_err()
+        {
+            return out;
+        }
+        paths.truncate(path_count as usize);
+
+        for path in &paths {
+            let mut source = DISPLAYCONFIG_SOURCE_DEVICE_NAME::default();
+            source.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_SOURCE_NAME;
+            source.header.size = size_of::<DISPLAYCONFIG_SOURCE_DEVICE_NAME>() as u32;
+            source.header.adapterId = path.sourceInfo.adapterId;
+            source.header.id = path.sourceInfo.id;
+            if DisplayConfigGetDeviceInfo(&mut source.header) != 0 {
+                continue;
+            }
+
+            let mut target = DISPLAYCONFIG_TARGET_DEVICE_NAME::default();
+            target.header.r#type = DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME;
+            target.header.size = size_of::<DISPLAYCONFIG_TARGET_DEVICE_NAME>() as u32;
+            target.header.adapterId = path.targetInfo.adapterId;
+            target.header.id = path.targetInfo.id;
+            if DisplayConfigGetDeviceInfo(&mut target.header) != 0 {
+                continue;
+            }
+
+            let gdi = utf16z(&source.viewGdiDeviceName);
+            let friendly = utf16z(&target.monitorFriendlyDeviceName);
+            if !gdi.is_empty() && !friendly.is_empty() {
+                out.push((gdi, friendly));
+            }
+        }
+    }
+    out
+}
+
+fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
     let mut found = Vec::new();
     unsafe {
         let hmon = as_hmonitor(hmonitor);
@@ -99,6 +169,11 @@ fn probe(hmonitor: isize) -> Vec<RawMonitor> {
         let device = utf16z(&mi.szDevice);
 
         let (id, name) = identity(&device);
+        let name = names
+            .iter()
+            .find(|(gdi, _)| gdi.eq_ignore_ascii_case(&device))
+            .map(|(_, friendly)| friendly.clone())
+            .unwrap_or(name);
 
         // Ambil handle physical monitor. Kalau gagal, monitor tetap ada di
         // daftar tapi hanya bisa dikendalikan lewat gamma.

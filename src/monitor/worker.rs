@@ -8,6 +8,7 @@
 //! pengguna menggeser slider cepat, worker hanya mengerjakan nilai terakhir,
 //! bukan seluruh riwayat.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -112,6 +113,10 @@ impl MonitorWorker {
 
     pub fn pct(&self) -> u8 {
         self.lock().pct
+    }
+
+    pub fn method(&self) -> Method {
+        self.lock().method
     }
 
     pub fn info(&self) -> MonitorInfo {
@@ -235,6 +240,9 @@ fn execute(ctx: &Ctx, cmd: Cmd, original: Option<&Ramp>, current_pct: u8) -> Res
 /// Kumpulan worker untuk semua monitor yang terdeteksi.
 pub struct Supervisor {
     workers: Vec<MonitorWorker>,
+    /// Nilai terakhir dari config dan dari slider. Dipakai saat monitor baru
+    /// muncul kembali (replug / resume) sebelum worker sempat membaca nilai asli.
+    saved: Mutex<BTreeMap<String, u8>>,
 }
 
 impl Default for Supervisor {
@@ -247,9 +255,28 @@ impl Supervisor {
     pub fn new() -> Self {
         let mut me = Self {
             workers: Vec::new(),
+            saved: Mutex::new(BTreeMap::new()),
         };
         me.rescan();
         me
+    }
+
+    /// Terapkan brightness tersimpan dan jadikan fallback untuk rescan.
+    pub fn apply_config(&self, values: &BTreeMap<String, u8>) {
+        {
+            let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
+            saved.clear();
+            for (id, pct) in values {
+                saved.insert(id.clone(), (*pct).min(100));
+            }
+        }
+
+        let saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
+        for worker in &self.workers {
+            if let Some(pct) = saved.get(&worker.id()).copied() {
+                worker.set_pct(pct);
+            }
+        }
     }
 
     /// Bangun ulang daftar monitor. Dipanggil saat `WM_DISPLAYCHANGE` atau resume.
@@ -262,11 +289,13 @@ impl Supervisor {
         }
         self.workers.clear();
 
+        let saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
         for raw in ddc::enumerate() {
             let pct = previous
                 .iter()
                 .find(|(id, _)| *id == raw.id)
                 .map(|(_, pct)| *pct)
+                .or_else(|| saved.get(&raw.id).copied())
                 .unwrap_or(raw.pct);
             self.workers.push(MonitorWorker::spawn(raw, pct));
         }
@@ -281,10 +310,14 @@ impl Supervisor {
     }
 
     /// Dipakai flyout per-monitor (multi monitor).
-    #[allow(dead_code)]
     pub fn set_pct(&self, id: &str, pct: u8) -> bool {
+        let pct = pct.min(100);
         for worker in &self.workers {
             if worker.id() == id {
+                self.saved
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(id.to_string(), pct);
                 worker.set_pct(pct);
                 return true;
             }
@@ -292,7 +325,21 @@ impl Supervisor {
         false
     }
 
+    pub fn method_of(&self, id: &str) -> Option<Method> {
+        self.workers
+            .iter()
+            .find(|worker| worker.id() == id)
+            .map(|worker| worker.method())
+    }
+
     pub fn set_all(&self, pct: u8) {
+        let pct = pct.min(100);
+        {
+            let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
+            for worker in &self.workers {
+                saved.insert(worker.id(), pct);
+            }
+        }
         for worker in &self.workers {
             worker.set_pct(pct);
         }

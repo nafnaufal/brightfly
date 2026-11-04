@@ -27,7 +27,7 @@ use windows::Win32::Graphics::DirectWrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED,
     DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_NORMAL,
     DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
-    DWRITE_TEXT_ALIGNMENT_TRAILING,
+    DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 use windows::Win32::Graphics::Gdi::HDC;
@@ -39,6 +39,8 @@ use windows::Win32::System::Registry::{
 pub struct Row {
     pub pct: u8,
     pub enabled: bool,
+    /// Nama monitor; hanya digambar kalau ada lebih dari satu baris.
+    pub name: String,
 }
 
 pub const CARD_WIDTH_DIP: f32 = 192.0;
@@ -51,6 +53,9 @@ const GAP_DIP: f32 = 10.0;
 const NUMBER_WIDTH_DIP: f32 = 20.0;
 const TRACK_HEIGHT_DIP: f32 = 4.0;
 const THUMB_RADIUS_DIP: f32 = 7.0;
+/// Tinggi pita nama monitor di atas slider saat baris lebih dari satu.
+const LABEL_HEIGHT_DIP: f32 = 16.0;
+const NAME_FONT_DIP: f32 = 12.0;
 
 /// Geometri kartu dalam piksel fisik.
 ///
@@ -61,6 +66,8 @@ pub struct Layout {
     pub height: f32,
     pub pad: f32,
     pub row_height: f32,
+    /// 0 kalau hanya ada satu baris (nama tidak ditampilkan).
+    pub label_height: f32,
     pub track_left: f32,
     pub track_right: f32,
     pub track_height: f32,
@@ -69,11 +76,17 @@ pub struct Layout {
 pub fn layout(rows: usize, scale: f32) -> Layout {
     let width = CARD_WIDTH_DIP * scale;
     let pad = PAD_X_DIP * scale;
+    let label_height = if rows > 1 {
+        LABEL_HEIGHT_DIP * scale
+    } else {
+        0.0
+    };
     Layout {
         width,
-        height: ROW_HEIGHT_DIP * rows as f32 * scale,
+        height: (ROW_HEIGHT_DIP * scale + label_height) * rows as f32,
         pad,
-        row_height: ROW_HEIGHT_DIP * scale,
+        row_height: ROW_HEIGHT_DIP * scale + label_height,
+        label_height,
         track_left: pad + (ICON_SIZE_DIP + GAP_DIP) * scale,
         track_right: width - pad - (NUMBER_WIDTH_DIP + GAP_DIP) * scale,
         track_height: TRACK_HEIGHT_DIP * scale,
@@ -85,8 +98,13 @@ impl Layout {
         self.row_height * index as f32
     }
 
+    /// Atas area slider (di bawah pita nama bila ada).
+    pub fn slider_top(&self, index: usize) -> f32 {
+        self.row_top(index) + self.label_height
+    }
+
     pub fn row_center(&self, index: usize) -> f32 {
-        self.row_top(index) + self.row_height / 2.0
+        self.slider_top(index) + (self.row_height - self.label_height) / 2.0
     }
 
     /// Posisi x thumb untuk persentase tertentu.
@@ -129,6 +147,15 @@ impl Theme {
             color(1.0, 1.0, 1.0, 1.0)
         } else {
             color(0.10, 0.10, 0.10, 1.0)
+        }
+    }
+
+    /// Nama monitor di atas slider; lebih redup dari teks utama.
+    fn secondary_text(&self) -> D2D1_COLOR_F {
+        if self.dark {
+            color(1.0, 1.0, 1.0, 0.72)
+        } else {
+            color(0.0, 0.0, 0.0, 0.60)
         }
     }
 
@@ -219,7 +246,7 @@ pub struct Renderer {
     target: ID2D1DCRenderTarget,
     brush: ID2D1SolidColorBrush,
     dwrite: IDWriteFactory,
-    text_format: Option<(f32, IDWriteTextFormat, IDWriteTextFormat)>,
+    text_format: Option<(f32, IDWriteTextFormat, IDWriteTextFormat, IDWriteTextFormat)>,
     size: (u32, u32),
 }
 
@@ -282,7 +309,7 @@ impl Renderer {
     }
 
     fn ensure_formats(&mut self, scale: f32) {
-        if let Some((current, _, _)) = &self.text_format {
+        if let Some((current, _, _, _)) = &self.text_format {
             if (*current - scale).abs() < 0.01 {
                 return;
             }
@@ -319,7 +346,22 @@ impl Renderer {
             let _ = icon.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
             let _ = icon.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
 
-            self.text_format = Some((scale, value, icon));
+            let Ok(name) = self.dwrite.CreateTextFormat(
+                family,
+                None,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                NAME_FONT_DIP * scale,
+                locale,
+            ) else {
+                return;
+            };
+            let _ = name.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            let _ = name.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            let _ = name.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+
+            self.text_format = Some((scale, value, icon, name));
         }
     }
 
@@ -379,6 +421,8 @@ impl Renderer {
             let l = layout(rows.len(), scale);
             let pad = l.pad;
             let row_height = l.row_height;
+            let label_height = l.label_height;
+            let band_height = row_height - label_height;
             let icon_size = ICON_SIZE_DIP * scale;
             let text_width = NUMBER_WIDTH_DIP * scale;
             let track_height = l.track_height;
@@ -389,17 +433,40 @@ impl Renderer {
 
             for (index, row) in rows.iter().enumerate() {
                 let top = l.row_top(index);
+                let band_top = top + label_height;
                 let center_y = l.row_center(index);
 
+                // Nama monitor, hanya saat ada lebih dari satu baris.
+                if label_height > 0.0 {
+                    if let Some((_, _, _, name_format)) = &self.text_format {
+                        self.brush.SetColor(&theme.secondary_text());
+                        let text: Vec<u16> = row.name.encode_utf16().collect();
+                        let rect = D2D_RECT_F {
+                            left: pad,
+                            top,
+                            right: width - pad,
+                            bottom: top + label_height,
+                        };
+                        self.target.DrawText(
+                            &text,
+                            name_format,
+                            &rect,
+                            &self.brush,
+                            D2D1_DRAW_TEXT_OPTIONS_NONE,
+                            DWRITE_MEASURING_MODE_NATURAL,
+                        );
+                    }
+                }
+
                 // Icon.
-                if let Some((_, _, icon)) = &self.text_format {
+                if let Some((_, _, icon, _)) = &self.text_format {
                     self.brush.SetColor(&theme.text());
                     let glyph: Vec<u16> = ICON_BRIGHTNESS.encode_utf16().collect();
                     let rect = D2D_RECT_F {
                         left: pad,
-                        top,
+                        top: band_top,
                         right: pad + icon_size,
-                        bottom: top + row_height,
+                        bottom: band_top + band_height,
                     };
                     self.target.DrawText(
                         &glyph,
@@ -466,14 +533,14 @@ impl Renderer {
                 }
 
                 // Angka persen.
-                if let Some((_, format, _)) = &self.text_format {
+                if let Some((_, format, _, _)) = &self.text_format {
                     self.brush.SetColor(&theme.text());
                     let text: Vec<u16> = format!("{}", row.pct).encode_utf16().collect();
                     let rect = D2D_RECT_F {
                         left: width - pad - text_width,
-                        top,
+                        top: band_top,
                         right: width - pad,
-                        bottom: top + row_height,
+                        bottom: band_top + band_height,
                     };
                     self.target.DrawText(
                         &text,
@@ -486,5 +553,39 @@ impl Renderer {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_row_has_no_label_band() {
+        let l = layout(1, 1.0);
+        assert_eq!(l.height, 48.0);
+        assert_eq!(l.row_height, 48.0);
+        assert_eq!(l.label_height, 0.0);
+        assert_eq!(l.row_center(0), 24.0);
+    }
+
+    #[test]
+    fn multiple_rows_reserve_label_band() {
+        let l = layout(2, 1.0);
+        assert_eq!(l.label_height, 16.0);
+        assert_eq!(l.row_height, 64.0);
+        assert_eq!(l.height, 128.0);
+        assert_eq!(l.slider_top(0), 16.0);
+        assert_eq!(l.row_center(0), 40.0);
+        assert_eq!(l.row_center(1), 104.0);
+    }
+
+    #[test]
+    fn label_band_scales_with_dpi() {
+        let l = layout(2, 1.5);
+        assert_eq!(l.width, 288.0);
+        assert_eq!(l.label_height, 24.0);
+        assert_eq!(l.row_height, 96.0);
+        assert_eq!(l.height, 192.0);
     }
 }

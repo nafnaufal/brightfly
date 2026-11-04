@@ -28,7 +28,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_SETCURSOR, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
-use crate::app::WM_SET_BRIGHTNESS;
+use crate::app::{WM_FLYOUT_HIDDEN, WM_SET_BRIGHTNESS};
 use crate::ui::render::{self, Renderer, Row, Theme};
 
 const CLASS_NAME: windows::core::PCWSTR = w!("BrightflyFlyout");
@@ -62,6 +62,8 @@ struct FlyoutData {
     dragging: Option<usize>,
     theme: Theme,
     scale: f32,
+    /// Langkah panah/wheel dalam persen (config `step`).
+    step: u8,
     shown_at: Instant,
     tracking_mouse: bool,
 }
@@ -81,8 +83,9 @@ impl FlyoutData {
     fn row_at(&self, x: f32, y: f32) -> Option<usize> {
         let l = self.layout();
         for index in 0..self.rows.len() {
-            let top = l.row_top(index);
-            if y < top || y >= top + l.row_height {
+            let top = l.slider_top(index);
+            let bottom = l.row_top(index) + l.row_height;
+            if y < top || y >= bottom {
                 continue;
             }
             if x >= l.track_left - (l.track_height * 2.0) && x <= l.track_right + (l.track_height * 2.0)
@@ -127,6 +130,22 @@ impl FlyoutData {
         let x = l.thumb_x(pct);
         self.drag_to(index, x);
     }
+
+    /// Samakan semua baris tanpa menunggu worker selesai. Dipakai saat sync
+    /// aktif: nilai di `supervisor.monitors()` masih lama sampai DDC selesai.
+    fn set_all_pct(&mut self, pct: u8) {
+        let pct = pct.min(100);
+        let mut changed = false;
+        for row in &mut self.rows {
+            if row.enabled && row.pct != pct {
+                row.pct = pct;
+                changed = true;
+            }
+        }
+        if changed {
+            self.redraw();
+        }
+    }
 }
 
 pub struct Flyout {
@@ -164,6 +183,7 @@ impl Flyout {
                 dragging: None,
                 theme: Theme::system(),
                 scale: 1.0,
+                step: 2,
                 shown_at: Instant::now(),
                 tracking_mouse: false,
             });
@@ -181,7 +201,7 @@ impl Flyout {
         unsafe { IsWindowVisible(self.hwnd).as_bool() }
     }
 
-    pub fn show(&self, anchor: &RECT, rows: Vec<Row>) {
+    pub fn show(&self, anchor: &RECT, rows: Vec<Row>, step: u8) {
         let Some(data) = self.data() else {
             return;
         };
@@ -210,6 +230,7 @@ impl Flyout {
         data.dragging = None;
         data.scale = placement.scale;
         data.theme = Theme::system();
+        data.step = step.max(1);
         data.shown_at = Instant::now();
 
         data.ensure_renderer();
@@ -223,10 +244,21 @@ impl Flyout {
     }
 
     pub fn hide(&self) {
-        unsafe {
-            let _ = ShowWindow(self.hwnd, SW_HIDE);
+        if let Some(data) = self.data() {
+            hide_now(self.hwnd, data.controller);
+        } else {
+            unsafe {
+                let _ = ShowWindow(self.hwnd, SW_HIDE);
+            }
+            HIDDEN_AT.with(|cell| cell.set(Some(Instant::now())));
         }
-        HIDDEN_AT.with(|cell| cell.set(Some(Instant::now())));
+    }
+
+    /// Perbarui semua baris sekaligus (sync multi-monitor).
+    pub fn set_all_pct(&self, pct: u8) {
+        if let Some(data) = self.data() {
+            data.set_all_pct(pct);
+        }
     }
 
     pub fn destroy(&self) {
@@ -268,6 +300,20 @@ pub fn hidden_recently() -> bool {
             .map(|at| at.elapsed() < Duration::from_millis(250))
             .unwrap_or(false)
     })
+}
+
+/// Sembunyikan flyout lalu beri tahu controller supaya config segera disimpan.
+fn hide_now(hwnd: HWND, controller: HWND) {
+    unsafe {
+        let _ = ShowWindow(hwnd, SW_HIDE);
+        let _ = PostMessageW(
+            Some(controller),
+            WM_FLYOUT_HIDDEN,
+            WPARAM(0),
+            LPARAM(0),
+        );
+    }
+    HIDDEN_AT.with(|cell| cell.set(Some(Instant::now())));
 }
 
 pub struct Placement {
@@ -421,14 +467,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let data = &mut *pointer;
                 match wparam.0 {
                     VK_ESCAPE => {
-                        let _ = ShowWindow(hwnd, SW_HIDE);
-                        HIDDEN_AT.with(|cell| cell.set(Some(Instant::now())));
+                        hide_now(hwnd, data.controller);
                     }
                     VK_LEFT | VK_DOWN | VK_RIGHT | VK_UP => {
+                        let step = data.step as i32;
                         let delta = if wparam.0 == VK_LEFT || wparam.0 == VK_DOWN {
-                            -2
+                            -step
                         } else {
-                            2
+                            step
                         };
                         if let Some(index) = data.hover.or(if data.rows.len() == 1 {
                             Some(0)
@@ -446,8 +492,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_ACTIVATE if !pointer.is_null() => {
                 let active = (wparam.0 & 0xFFFF) as u32;
                 if active == WA_INACTIVE && (*pointer).shown_at.elapsed() >= ACTIVATION_GRACE {
-                    let _ = ShowWindow(hwnd, SW_HIDE);
-                    HIDDEN_AT.with(|cell| cell.set(Some(Instant::now())));
+                    hide_now(hwnd, (*pointer).controller);
                 }
                 LRESULT(0)
             }
@@ -522,7 +567,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_MOUSEWHEEL if !pointer.is_null() => {
                 let data = &mut *pointer;
                 let delta = ((wparam.0 >> 16) & 0xFFFF) as u16 as i16 as i32;
-                let step = if delta > 0 { 2 } else { -2 };
+                let step = data.step as i32;
+                let step = if delta > 0 { step } else { -step };
                 if let Some(index) = data.hover {
                     data.nudge(index, step);
                     data.redraw();
