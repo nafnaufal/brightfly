@@ -4,7 +4,7 @@ Slider brightness untuk monitor eksternal di Windows 11, dengan tampilan
 flyout yang meniru flyout volume Windows. Ditulis dengan Rust + Win32 native
 dan Direct2D, tanpa WebView, tanpa runtime XAML, dan tanpa dependency besar.
 
-- Ukuran exe ± 0,30 MB (termasuk icon multi-resolusi)
+- Ukuran exe ± 0,31 MB (termasuk icon multi-resolusi)
 - Idle ± 10,6 MB working set, 2 thread, CPU 0%
 - DDC/CI VCP `0x10`; gamma ramp sebagai fallback
 - Satu baris slider per monitor; sinkronisasi opsional
@@ -24,6 +24,7 @@ Jalankan `brightfly.exe`. Icon matahari muncul di area tray.
 | Panah kiri/kanan, atas/bawah saat flyout fokus | Ubah sesuai `step` |
 | Wheel di atas flyout | Ubah sesuai `step` |
 | `Esc` | Tutup flyout dan simpan nilai |
+| Klik di luar flyout / window lain | Tutup flyout dan simpan nilai |
 | Klik kanan icon tray | Menu sync, autostart, keluar |
 
 Menjalankan exe untuk kedua kalinya tidak membuat instance baru; instance yang

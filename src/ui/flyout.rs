@@ -5,6 +5,7 @@
 //! disembunyikan dan ditampilkan ulang tanpa kehilangan isi. Sudut
 //! membulat dipotong lewat window region.
 
+use std::ffi::c_void;
 use std::mem::size_of;
 use std::time::{Duration, Instant};
 
@@ -15,17 +16,19 @@ use windows::Win32::Graphics::Gdi::{
     SetWindowRgn, UpdateWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
 };
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    ReleaseCapture, SetCapture, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
+    ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, GetForegroundWindow,
     GetWindowThreadProcessId, IsWindowVisible, LoadCursorW, PostMessageW, RegisterClassW,
-    SetForegroundWindow, SetWindowPos, ShowWindow, CS_DROPSHADOW, HWND_TOPMOST,
-    IDC_ARROW, SWP_NOACTIVATE, SW_HIDE, SW_SHOW, WA_INACTIVE, WM_ACTIVATE, WM_DESTROY,
-    WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT,
-    WM_SETCURSOR, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    SetForegroundWindow, SetWindowPos, ShowWindow, CS_DROPSHADOW, EVENT_SYSTEM_FOREGROUND,
+    HWND_TOPMOST, IDC_ARROW, SWP_NOACTIVATE, SW_HIDE, SW_SHOW, WA_INACTIVE, WINEVENT_OUTOFCONTEXT,
+    WINEVENT_SKIPOWNPROCESS, WM_ACTIVATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_KILLFOCUS,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SETCURSOR, WNDCLASSW,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 use crate::app::{WM_FLYOUT_HIDDEN, WM_SET_BRIGHTNESS};
@@ -44,11 +47,20 @@ const VK_DOWN: usize = 0x28;
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
 /// Klik tray yang baru saja membuka flyout tidak boleh langsung menutupnya
-/// lewat `WM_ACTIVATE(WA_INACTIVE)`.
+/// lewat `WM_ACTIVATE(WA_INACTIVE)` atau event foreground.
 const ACTIVATION_GRACE: Duration = Duration::from_millis(200);
+
+/// Dikirim hook foreground ke window flyout. `WM_APP + 6` tidak dipakai
+/// controller (`WM_APP + 1..=5`).
+const WM_OUTSIDE_FOREGROUND: u32 = 0x8000 + 6;
 
 thread_local! {
     static HIDDEN_AT: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+    /// HWND flyout untuk hook foreground. Hook hanya memakai satu window,
+    /// jadi disimpan per thread alih-alih meneruskan pointer lewat callback.
+    static HOOK_TARGET: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
+    /// Handle `SetWinEventHook` yang sedang aktif (0 kalau tidak ada).
+    static HOOK: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
 }
 
 struct FlyoutData {
@@ -241,6 +253,7 @@ impl Flyout {
             let _ = UpdateWindow(self.hwnd);
         }
         force_foreground(self.hwnd);
+        watch_foreground(self.hwnd);
     }
 
     pub fn hide(&self) {
@@ -304,6 +317,7 @@ pub fn hidden_recently() -> bool {
 
 /// Sembunyikan flyout lalu beri tahu controller supaya config segera disimpan.
 fn hide_now(hwnd: HWND, controller: HWND) {
+    unwatch_foreground();
     unsafe {
         let _ = ShowWindow(hwnd, SW_HIDE);
         let _ = PostMessageW(
@@ -314,6 +328,77 @@ fn hide_now(hwnd: HWND, controller: HWND) {
         );
     }
     HIDDEN_AT.with(|cell| cell.set(Some(Instant::now())));
+}
+
+/// Pasang hook foreground selama flyout tampil.
+///
+/// `WM_ACTIVATE(WA_INACTIVE)` dan `WM_KILLFOCUS` ternyata tidak dikirim saat
+/// user mengklik window lain, karena `force_foreground()` membuat window
+/// menjadi foreground tanpa state aktivasi yang normal. Event
+/// `EVENT_SYSTEM_FOREGROUND` tetap datang, dan hook hanya hidup selama flyout
+/// terbuka sehingga tidak ada beban saat idle.
+fn watch_foreground(hwnd: HWND) {
+    unwatch_foreground();
+
+    HOOK_TARGET.with(|cell| cell.set(hwnd.0 as isize));
+    let hook = unsafe {
+        SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            None,
+            Some(foreground_changed),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        )
+    };
+    HOOK.with(|cell| cell.set(hook.0 as isize));
+}
+
+/// Lepas hook foreground yang sedang aktif, kalau ada.
+fn unwatch_foreground() {
+    HOOK.with(|cell| {
+        let raw = cell.replace(0);
+        if raw != 0 {
+            unsafe {
+                let _ = UnhookWinEvent(HWINEVENTHOOK(raw as *mut c_void));
+            }
+        }
+    });
+
+    HOOK_TARGET.with(|cell| cell.set(0));
+}
+
+/// Window lain menjadi foreground: minta window flyout memeriksa dirinya.
+///
+/// Hanya mengirim pesan; keputusan tutup diambil di wndproc supaya tidak
+/// mengubah state window dari dalam callback event.
+unsafe extern "system" fn foreground_changed(
+    _hook: HWINEVENTHOOK,
+    event: u32,
+    hwnd: HWND,
+    _id_object: i32,
+    _id_child: i32,
+    _thread: u32,
+    _time: u32,
+) {
+    if event != EVENT_SYSTEM_FOREGROUND {
+        return;
+    }
+
+    let target = HOOK_TARGET.with(|cell| cell.get());
+    if target == 0 || hwnd.0 as isize == target {
+        return;
+    }
+
+    unsafe {
+        let _ = PostMessageW(
+            Some(HWND(target as *mut c_void)),
+            WM_OUTSIDE_FOREGROUND,
+            WPARAM(0),
+            LPARAM(0),
+        );
+    }
 }
 
 pub struct Placement {
@@ -400,9 +485,11 @@ fn force_foreground(hwnd: HWND) {
             let _ = AttachThreadInput(current, owner, true);
             let _ = SetForegroundWindow(hwnd);
             let _ = BringWindowToTop(hwnd);
+            let _ = SetFocus(Some(hwnd));
             let _ = AttachThreadInput(current, owner, false);
         } else {
             let _ = SetForegroundWindow(hwnd);
+            let _ = SetFocus(Some(hwnd));
         }
     }
 }
@@ -496,6 +583,33 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
                 LRESULT(0)
             }
+            // `SetForegroundWindow` lewat AttachThreadInput bisa membuat window
+            // menjadi foreground tanpa pernah benar-benar "aktif", sehingga
+            // `WM_ACTIVATE(WA_INACTIVE)` tidak dikirim saat user mengklik
+            // window lain. Sinyal utama karena itu event foreground di bawah;
+            // `WM_KILLFOCUS` hanya jaring pengaman.
+            WM_KILLFOCUS if !pointer.is_null() => {
+                let data = &*pointer;
+                let close = IsWindowVisible(hwnd).as_bool()
+                    && data.shown_at.elapsed() >= ACTIVATION_GRACE;
+                let controller = data.controller;
+                if close {
+                    hide_now(hwnd, controller);
+                }
+                LRESULT(0)
+            }
+            // User mengklik window lain atau bagian layar di luar flyout.
+            WM_OUTSIDE_FOREGROUND if !pointer.is_null() => {
+                let data = &*pointer;
+                let close = IsWindowVisible(hwnd).as_bool()
+                    && data.shown_at.elapsed() >= ACTIVATION_GRACE
+                    && GetForegroundWindow() != hwnd;
+                let controller = data.controller;
+                if close {
+                    hide_now(hwnd, controller);
+                }
+                LRESULT(0)
+            }
             WM_MOUSEMOVE if !pointer.is_null() => {
                 let data = &mut *pointer;
                 let (x, y) = mouse_point(lparam);
@@ -581,6 +695,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 LRESULT(1)
             }
             WM_DESTROY => {
+                unwatch_foreground();
                 if !pointer.is_null() {
                     drop(Box::from_raw(pointer));
                     windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(

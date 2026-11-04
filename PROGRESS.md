@@ -1,7 +1,7 @@
 # Progress
 
 Diperbarui: pasca-fase 5 (rescan thread latar, ikon PNG, perbaikan klik tray,
-identitas monitor dari EDID).
+identitas monitor dari EDID, tutup otomatis saat klik di luar flyout).
 
 ## Status
 
@@ -36,8 +36,8 @@ Ikon dan version info:
 
 Packaging:
 
-- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (145.206 byte),
-  berisi `brightfly.exe` (309.760 byte) dan `README.md`. Zip sedikit lebih besar
+- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (145.567 byte),
+  berisi `brightfly.exe` (310.272 byte) dan `README.md`. Zip sedikit lebih besar
   dari versi sebelumnya meski exe jauh lebih kecil, karena resource PNG dan
   kode sudah sulit dipadatkan lagi.
 - Zip diekstrak ke folder lain dan exe dijalankan: ✅ tray muncul,
@@ -45,14 +45,14 @@ Packaging:
 
 | Uji | Metode | Hasil |
 |---|---|---|
-| Ukuran exe | `target\release\brightfly.exe` | 309.760 byte (0,30 MB; target ≤3 MB) ✅ |
-| Start sampai tray terdaftar | 5× start, poll `Shell_NotifyIconGetRect` | median 121 ms (116–197; target ≤300 ms) ✅ |
-| Waktu buka flyout | `WM_TOGGLE` + `UpdateWindow`, 10× | median 18,0 ms (10,7–34,9; target ≤60 ms) ✅ |
+| Ukuran exe | `target\release\brightfly.exe` | 310.272 byte (0,31 MB; target ≤3 MB) ✅ |
+| Start sampai tray terdaftar | 5× start, poll `Shell_NotifyIconGetRect` | median 121–130 ms (120–177; target ≤300 ms) ✅ |
+| Waktu buka flyout | `WM_TOGGLE` + `UpdateWindow`, 10× | median 17,7 ms (12,3–37,4; target ≤60 ms) ✅ |
 | Handler `WM_DISPLAYCHANGE` | `SendMessageW` saat flyout terbuka | 0,90 ms (enumerasi pindah ke thread latar) ✅ |
 | Handler resume | `WM_POWERBROADCAST` + `PBT_APMRESUMEAUTOMATIC` | 1,36 ms ✅ |
 | CPU idle | 60 detik, `TotalProcessorTime`, flyout dipastikan tertutup | 0 ms (target 0%) ✅ |
 | Working set idle | 60 detik setelah start | 10,6 MB WS, 1,6 MB private, 2 thread ✅ |
-| Working set flyout terbuka | 700 ms setelah show | 22,9 MB WS, 5,3 MB private, 8 thread (WS target ≤25 MB) ✅ |
+| Working set flyout terbuka | 700 ms setelah show | 22,8 MB WS, 5,1 MB private, 9 thread (WS target ≤25 MB) ✅ |
 | CPU drag | 150 gerakan, 2,5 detik | <15,6 ms CPU (di bawah granularitas) ✅ |
 | Drag cepat / coalescing | `brightfly stress` | 200 perubahan dalam 305 ms, selisih akhir 0 poin ✅ |
 | Build tanpa `rc.exe` | jalur fallback di `build.rs` | belum diuji langsung; fallback memakai icon bawaan Windows |
@@ -173,6 +173,54 @@ Perubahan:
 | Klik tray (regresi) | klik kiri 1/2/3 + klik kanan | buka/tutup/buka, menu muncul ✅ |
 | Unit test | `cargo test` | 29 lulus (8 EDID + 5 migrasi baru) ✅ |
 | Start setelah tambah pembacaan registry | 5× start | median 121 ms (+4 ms) ✅ |
+
+## Menutup flyout saat klik di luar
+
+Permintaan: flyout harus tertutup otomatis saat user mengklik window lain atau
+area di luar kotak.
+
+Diagnosis: handler `WM_ACTIVATE(WA_INACTIVE)` dan `WM_KILLFOCUS` sudah ada,
+tetapi keduanya **tidak pernah terpicu** saat window lain diklik. Log sementara
+di wndproc flyout mencatat urutan ini saat flyout tampil —
+
+```
+WM_ACTIVATEAPP(1)  WM_NCACTIVATE  WM_ACTIVATE(1)  WM_SETFOCUS
+```
+
+— lalu tidak ada pesan apa pun ketika desktop diklik. `WM_KILLFOCUS` hanya
+datang saat flyout sendiri disembunyikan. Penyebabnya: `force_foreground()`
+memaksa window menjadi foreground lewat `AttachThreadInput`, sehingga state
+aktivasinya tidak normal.
+
+Perbaikan:
+
+- `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` dipasang **hanya selama flyout
+  tampil** dan dilepas di `hide_now()` serta `WM_DESTROY`. Tidak ada polling
+  dan tidak ada hook mouse/keyboard, jadi idle tetap 0% CPU.
+- Callback hook tidak menutup window langsung; ia hanya `PostMessage`
+  `WM_OUTSIDE_FOREGROUND` (`WM_APP + 6`) ke window flyout.
+- Handler memeriksa `IsWindowVisible`, `ACTIVATION_GRACE` (200 ms), dan
+  memastikan foreground bukan flyout itu sendiri.
+- `WINEVENT_SKIPOWNPROCESS` mencegah event dari proses sendiri (mis. saat
+  flyout memaksa dirinya foreground) ikut menutup flyout.
+- `WM_KILLFOCUS` dipertahankan sebagai jaring pengaman.
+- Tambahan yang ditemukan saat uji: setelah flyout pernah ditutup oleh klik
+  luar, `force_foreground()` tidak memberi fokus keyboard, sehingga Escape mati.
+  `SetFocus(hwnd)` sekarang dipanggil setelah `SetForegroundWindow`.
+
+| Uji | Metode | Hasil |
+|---|---|---|
+| Klik desktop | buka flyout, klik (300,300) | tertutup < 250 ms ✅ |
+| Klik tombol Start | buka flyout, klik Start | tertutup ✅ |
+| Alt+Tab | buka flyout, Alt+Tab | tertutup ✅ |
+| Drag slider | drag 20 langkah di track | tetap terbuka, brightness berubah ✅ |
+| Escape | buka → tutup lewat klik luar → buka → Escape | tertutup ✅ |
+| Klik tray 1/2/3 | klik kiri berurutan | buka/tutup/buka ✅ |
+| Klik kanan | klik kanan icon tray | menu muncul, flyout tetap tertutup ✅ |
+| Build release | seluruh urutan di atas pada exe release | sama ✅ |
+| Idle setelah hook | 60 detik | 0 ms CPU, 10,6 MB WS, 2 thread ✅ |
+| Unit test | `cargo test` | 29 lulus ✅ |
+| Clippy | `cargo clippy --all-targets` | 7 warning, semuanya pre-existing ✅ |
 
 ## Hasil gate (fase 0)
 
