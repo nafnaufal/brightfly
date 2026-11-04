@@ -18,15 +18,18 @@ use windows::Win32::UI::WindowsAndMessaging::{
     PostQuitMessage, RegisterClassW, SetForegroundWindow, SetWindowLongPtrW, TrackPopupMenu,
     TranslateMessage, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA, MF_STRING, MSG, TPM_NONOTIFY,
     TPM_RETURNCMD, WM_APP, WM_CONTEXTMENU as WM_CONTEXTMENU_MSG, WM_DESTROY, WM_DISPLAYCHANGE,
-    WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONUP, WNDCLASSW, WS_OVERLAPPED,
 };
 
-use crate::monitor::Supervisor;
+use crate::monitor::{State, Supervisor};
 use crate::ui::flyout::{self, Flyout};
+use crate::ui::render::Row;
 use crate::ui::tray::{self, Tray};
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TOGGLE: u32 = WM_APP + 2;
+/// Dikirim flyout saat slider bergerak: `wparam` = index baris, `lparam` = persen.
+pub const WM_SET_BRIGHTNESS: u32 = WM_APP + 3;
 
 const CONTROLLER_CLASS: PCWSTR = w!("BrightflyController");
 
@@ -35,6 +38,8 @@ struct Controller {
     flyout: Flyout,
     tray: Tray,
     supervisor: Supervisor,
+    /// Urutan id monitor yang sedang tampil di flyout, sejajar dengan index baris.
+    shown_ids: Vec<String>,
 }
 
 impl Controller {
@@ -48,8 +53,26 @@ impl Controller {
         if flyout::hidden_recently() {
             return;
         }
+
+        let monitors = self.supervisor.monitors();
+        self.shown_ids = monitors.iter().map(|m| m.id.clone()).collect();
+        let rows: Vec<Row> = monitors
+            .iter()
+            .map(|m| Row {
+                pct: m.pct,
+                enabled: m.state != State::Unsupported,
+            })
+            .collect();
+
         let anchor = self.tray.rect().unwrap_or_else(tray::cursor_anchor);
-        self.flyout.show(&anchor);
+        self.flyout.show(&anchor, rows);
+    }
+
+    fn set_brightness(&mut self, index: usize, pct: u8) {
+        let Some(id) = self.shown_ids.get(index) else {
+            return;
+        };
+        self.supervisor.set_pct(id, pct.min(100));
     }
 
     fn menu(&mut self) {
@@ -127,7 +150,7 @@ pub fn run() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let Some(flyout_window) = Flyout::create(instance) else {
+    let Some(flyout_window) = Flyout::create(instance, hwnd) else {
         eprintln!("Gagal membuat window flyout.");
         return ExitCode::FAILURE;
     };
@@ -142,6 +165,7 @@ pub fn run() -> ExitCode {
         flyout: flyout_window,
         tray: tray_icon,
         supervisor: Supervisor::new(),
+        shown_ids: Vec::new(),
     });
     unsafe {
         SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(controller) as isize);
@@ -190,8 +214,12 @@ unsafe extern "system" fn controller_wndproc(
         match msg {
             WM_DESTROY => {
                 if !pointer.is_null() {
-                    drop(Box::from_raw(pointer));
+                    let controller = Box::from_raw(pointer);
                     SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                    controller.supervisor.stop_all();
+                    controller.flyout.hide();
+                    controller.flyout.destroy();
+                    drop(controller);
                 }
                 PostQuitMessage(0);
                 LRESULT(0)
@@ -200,10 +228,14 @@ unsafe extern "system" fn controller_wndproc(
                 let event = (lparam.0 as u32) & 0xFFFF;
                 let controller = &mut *pointer;
                 match event {
-                    NIN_SELECT | WM_LBUTTONUP => controller.toggle(),
+                    NIN_SELECT | WM_LBUTTONDOWN | WM_LBUTTONUP => controller.toggle(),
                     WM_CONTEXTMENU_MSG | WM_RBUTTONUP => controller.menu(),
                     _ => {}
                 }
+                LRESULT(0)
+            }
+            WM_SET_BRIGHTNESS if !pointer.is_null() => {
+                (*pointer).set_brightness(wparam.0, lparam.0 as u8);
                 LRESULT(0)
             }
             WM_TOGGLE if !pointer.is_null() => {

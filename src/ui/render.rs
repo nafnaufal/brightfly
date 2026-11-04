@@ -1,0 +1,490 @@
+//! Renderer Direct2D dengan DC render target.
+//!
+//! Flyout digambar langsung ke HDC window setiap `WM_PAINT`. Tidak ada
+//! Direct3D, DXGI device, DirectComposition, atau acrylic. Satu-satunya
+//! resource grafis yang dipegang adalah render target Direct2D, jadi
+//! memori proses jauh lebih kecil dan tidak ada state komposisi yang bisa
+//! lepas saat window disembunyikan.
+//!
+//! Konsekuensinya: kartu sepenuhnya opaque (tidak ada blur backdrop) dan
+//! sudut membulat dipotong lewat `SetWindowRgn`, sehingga tepinya tidak
+//! di-anti-alias.
+
+use std::ffi::c_void;
+
+use windows::core::w;
+use windows::Win32::Foundation::RECT;
+use windows::Win32::Graphics::Direct2D::Common::{
+    D2D1_ALPHA_MODE_IGNORE, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F,
+};
+use windows::Win32::Graphics::Direct2D::{
+    D2D1CreateFactory, D2D1_ELLIPSE, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT,
+    D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+    D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_DRAW_TEXT_OPTIONS_NONE,
+    ID2D1DCRenderTarget, ID2D1Factory, ID2D1SolidColorBrush,
+};
+use windows::Win32::Graphics::DirectWrite::{
+    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED,
+    DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_NORMAL,
+    DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
+    DWRITE_TEXT_ALIGNMENT_TRAILING,
+};
+use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
+use windows::Win32::Graphics::Gdi::HDC;
+use windows::Win32::System::Registry::{
+    RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD,
+};
+
+/// Satu baris slider yang akan digambar.
+pub struct Row {
+    pub pct: u8,
+    pub enabled: bool,
+}
+
+pub const CARD_WIDTH_DIP: f32 = 192.0;
+pub const ROW_HEIGHT_DIP: f32 = 48.0;
+pub const CARD_RADIUS_DIP: f32 = 8.0;
+
+const PAD_X_DIP: f32 = 12.0;
+const ICON_SIZE_DIP: f32 = 20.0;
+const GAP_DIP: f32 = 10.0;
+const NUMBER_WIDTH_DIP: f32 = 20.0;
+const TRACK_HEIGHT_DIP: f32 = 4.0;
+const THUMB_RADIUS_DIP: f32 = 7.0;
+
+/// Geometri kartu dalam piksel fisik.
+///
+/// Dipakai bersama oleh renderer dan hit-testing supaya posisi thumb yang
+/// digambar selalu sama dengan area yang bisa diklik.
+pub struct Layout {
+    pub width: f32,
+    pub height: f32,
+    pub pad: f32,
+    pub row_height: f32,
+    pub track_left: f32,
+    pub track_right: f32,
+    pub track_height: f32,
+}
+
+pub fn layout(rows: usize, scale: f32) -> Layout {
+    let width = CARD_WIDTH_DIP * scale;
+    let pad = PAD_X_DIP * scale;
+    Layout {
+        width,
+        height: ROW_HEIGHT_DIP * rows as f32 * scale,
+        pad,
+        row_height: ROW_HEIGHT_DIP * scale,
+        track_left: pad + (ICON_SIZE_DIP + GAP_DIP) * scale,
+        track_right: width - pad - (NUMBER_WIDTH_DIP + GAP_DIP) * scale,
+        track_height: TRACK_HEIGHT_DIP * scale,
+    }
+}
+
+impl Layout {
+    pub fn row_top(&self, index: usize) -> f32 {
+        self.row_height * index as f32
+    }
+
+    pub fn row_center(&self, index: usize) -> f32 {
+        self.row_top(index) + self.row_height / 2.0
+    }
+
+    /// Posisi x thumb untuk persentase tertentu.
+    pub fn thumb_x(&self, pct: u8) -> f32 {
+        self.track_left + (self.track_right - self.track_left) * (pct.min(100) as f32 / 100.0)
+    }
+}
+
+/// Glyph "Brightness" di Segoe Fluent Icons.
+const ICON_BRIGHTNESS: &str = "\u{E706}";
+
+pub struct Theme {
+    pub dark: bool,
+    /// Warna aksen sistem (RGB 0..1), dipakai untuk bagian track yang terisi.
+    pub accent: [f32; 3],
+}
+
+impl Theme {
+    /// Baca tema terang/gelap dan warna aksen dari registry.
+    pub fn system() -> Self {
+        let dark = system_uses_dark();
+        Self {
+            dark,
+            accent: system_accent(dark),
+        }
+    }
+
+    /// Kartu opaque. Tanpa acrylic, warna inilah yang tampil apa adanya:
+    /// `#2C2C2C` di mode gelap, diukur langsung dari flyout volume Windows 11.
+    fn card(&self) -> D2D1_COLOR_F {
+        if self.dark {
+            color(0.173, 0.173, 0.173, 1.0)
+        } else {
+            color(0.957, 0.957, 0.957, 1.0)
+        }
+    }
+
+    fn text(&self) -> D2D1_COLOR_F {
+        if self.dark {
+            color(1.0, 1.0, 1.0, 1.0)
+        } else {
+            color(0.10, 0.10, 0.10, 1.0)
+        }
+    }
+
+    /// Bagian track yang belum terisi.
+    ///
+    /// Ini token `ControlStrongFillColorDefault` milik WinUI: putih 54% di
+    /// mode gelap, hitam 45% di mode terang. Diukur langsung dari flyout
+    /// volume Windows 11 (#9F9F9F di atas kartu #2C2C2C).
+    fn track(&self) -> D2D1_COLOR_F {
+        if self.dark {
+            color(1.0, 1.0, 1.0, 0.541)
+        } else {
+            color(0.0, 0.0, 0.0, 0.447)
+        }
+    }
+
+    fn fill(&self) -> D2D1_COLOR_F {
+        color(self.accent[0], self.accent[1], self.accent[2], 1.0)
+    }
+
+    fn disabled(&self) -> D2D1_COLOR_F {
+        if self.dark {
+            color(1.0, 1.0, 1.0, 0.35)
+        } else {
+            color(0.0, 0.0, 0.0, 0.35)
+        }
+    }
+}
+
+/// `AppsUseLightTheme == 0` berarti mode gelap. Default Windows 11 gelap.
+pub fn system_uses_dark() -> bool {
+    let mut value = 1u32;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize"),
+            w!("AppsUseLightTheme"),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut value as *mut u32 as *mut c_void),
+            Some(&mut size),
+        )
+    };
+    status.is_ok() && value == 0
+}
+
+/// Warna aksen Windows. Paletnya disimpan sebagai 8 warna RGBA;
+/// index 1 dipakai Windows di mode gelap, index 4 di mode terang.
+fn system_accent(dark: bool) -> [f32; 3] {
+    let mut palette = [0u8; 32];
+    let mut size = palette.len() as u32;
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            w!("Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Accent"),
+            w!("AccentPalette"),
+            RRF_RT_REG_BINARY,
+            None,
+            Some(palette.as_mut_ptr() as *mut c_void),
+            Some(&mut size),
+        )
+    };
+
+    if status.is_ok() && size >= 32 {
+        let index = if dark { 1 } else { 4 };
+        let base = index * 4;
+        return [
+            palette[base] as f32 / 255.0,
+            palette[base + 1] as f32 / 255.0,
+            palette[base + 2] as f32 / 255.0,
+        ];
+    }
+
+    // Fallback: lavender khas Windows 11.
+    if dark {
+        [0.741, 0.729, 0.906]
+    } else {
+        [0.271, 0.278, 0.714]
+    }
+}
+
+fn color(r: f32, g: f32, b: f32, a: f32) -> D2D1_COLOR_F {
+    D2D1_COLOR_F { r, g, b, a }
+}
+
+pub struct Renderer {
+    target: ID2D1DCRenderTarget,
+    brush: ID2D1SolidColorBrush,
+    dwrite: IDWriteFactory,
+    text_format: Option<(f32, IDWriteTextFormat, IDWriteTextFormat)>,
+    size: (u32, u32),
+}
+
+impl Renderer {
+    pub fn new() -> Option<Self> {
+        macro_rules! step {
+            ($expr:expr, $name:literal) => {
+                match $expr {
+                    Ok(value) => value,
+                    Err(error) => {
+                        eprintln!("renderer: {} gagal: {:?}", $name, error);
+                        return None;
+                    }
+                }
+            };
+        }
+
+        unsafe {
+            let factory: ID2D1Factory =
+                step!(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None), "D2D1CreateFactory");
+
+            let properties = D2D1_RENDER_TARGET_PROPERTIES {
+                // DC render target memang selalu software. Menyebutnya
+                // eksplisit mencegah Direct2D memuat driver D3D11 GPU, yang
+                // memakan puluhan MB memori hanya untuk satu kartu kecil.
+                r#type: D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+                pixelFormat: D2D1_PIXEL_FORMAT {
+                    format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                    // Kartu opaque: tidak ada alpha yang perlu dipertahankan.
+                    alphaMode: D2D1_ALPHA_MODE_IGNORE,
+                },
+                dpiX: 96.0,
+                dpiY: 96.0,
+                usage: D2D1_RENDER_TARGET_USAGE_NONE,
+                minLevel: D2D1_FEATURE_LEVEL_DEFAULT,
+            };
+
+            let target = step!(factory.CreateDCRenderTarget(&properties), "CreateDCRenderTarget");
+            let brush = step!(
+                target.CreateSolidColorBrush(&color(1.0, 1.0, 1.0, 1.0), None),
+                "CreateSolidColorBrush"
+            );
+            let dwrite: IDWriteFactory =
+                step!(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED), "DWriteCreateFactory");
+
+            Some(Self {
+                target,
+                brush,
+                dwrite,
+                text_format: None,
+                size: (0, 0),
+            })
+        }
+    }
+
+    /// Ukuran kartu dalam piksel fisik untuk jumlah baris tertentu.
+    pub fn measure(rows: usize, scale: f32) -> (i32, i32) {
+        let l = layout(rows, scale);
+        (l.width.round() as i32, l.height.round() as i32)
+    }
+
+    fn ensure_formats(&mut self, scale: f32) {
+        if let Some((current, _, _)) = &self.text_format {
+            if (*current - scale).abs() < 0.01 {
+                return;
+            }
+        }
+        unsafe {
+            let family = w!("Segoe UI Variable Text");
+            let locale = w!("en-us");
+
+            let Ok(value) = self.dwrite.CreateTextFormat(
+                family,
+                None,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                15.0 * scale,
+                locale,
+            ) else {
+                return;
+            };
+            let _ = value.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+            let _ = value.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+            let Ok(icon) = self.dwrite.CreateTextFormat(
+                w!("Segoe Fluent Icons"),
+                None,
+                DWRITE_FONT_WEIGHT_NORMAL,
+                DWRITE_FONT_STYLE_NORMAL,
+                DWRITE_FONT_STRETCH_NORMAL,
+                16.0 * scale,
+                locale,
+            ) else {
+                return;
+            };
+            let _ = icon.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            let _ = icon.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+
+            self.text_format = Some((scale, value, icon));
+        }
+    }
+
+    /// Gambar seluruh kartu ke `hdc`, biasanya HDC dari `BeginPaint`.
+    pub fn draw(
+        &mut self,
+        hdc: HDC,
+        rows: &[Row],
+        hover: Option<usize>,
+        dragging: Option<usize>,
+        theme: &Theme,
+        scale: f32,
+    ) {
+        let (width, height) = Self::measure(rows.len(), scale);
+        if width <= 0 || height <= 0 {
+            return;
+        }
+        self.size = (width as u32, height as u32);
+        self.ensure_formats(scale);
+
+        let bounds = RECT {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        };
+
+        unsafe {
+            if let Err(error) = self.target.BindDC(hdc, &bounds) {
+                eprintln!("renderer: BindDC gagal: {error:?}");
+                return;
+            }
+            self.target.BeginDraw();
+
+            // Kartu opaque. Sudut membulat sudah dipotong `SetWindowRgn`,
+            // jadi tidak perlu menggambar rounded rect di sini.
+            let background = theme.card();
+            let _ = self.target.Clear(Some(&background));
+
+            self.draw_card(rows, hover, dragging, theme, scale);
+
+            if let Err(error) = self.target.EndDraw(None, None) {
+                eprintln!("renderer: EndDraw gagal: {error:?}");
+            }
+        }
+    }
+
+    fn draw_card(
+        &mut self,
+        rows: &[Row],
+        hover: Option<usize>,
+        dragging: Option<usize>,
+        theme: &Theme,
+        scale: f32,
+    ) {
+        unsafe {
+            let l = layout(rows.len(), scale);
+            let pad = l.pad;
+            let row_height = l.row_height;
+            let icon_size = ICON_SIZE_DIP * scale;
+            let text_width = NUMBER_WIDTH_DIP * scale;
+            let track_height = l.track_height;
+            let width = self.size.0 as f32;
+
+            let track_left = l.track_left;
+            let track_right = l.track_right;
+
+            for (index, row) in rows.iter().enumerate() {
+                let top = l.row_top(index);
+                let center_y = l.row_center(index);
+
+                // Icon.
+                if let Some((_, _, icon)) = &self.text_format {
+                    self.brush.SetColor(&theme.text());
+                    let glyph: Vec<u16> = ICON_BRIGHTNESS.encode_utf16().collect();
+                    let rect = D2D_RECT_F {
+                        left: pad,
+                        top,
+                        right: pad + icon_size,
+                        bottom: top + row_height,
+                    };
+                    self.target.DrawText(
+                        &glyph,
+                        icon,
+                        &rect,
+                        &self.brush,
+                        D2D1_DRAW_TEXT_OPTIONS_NONE,
+                        DWRITE_MEASURING_MODE_NATURAL,
+                    );
+                }
+
+                // Track belakang.
+                let track = D2D1_ROUNDED_RECT {
+                    rect: D2D_RECT_F {
+                        left: track_left,
+                        top: center_y - track_height / 2.0,
+                        right: track_right,
+                        bottom: center_y + track_height / 2.0,
+                    },
+                    radiusX: track_height / 2.0,
+                    radiusY: track_height / 2.0,
+                };
+                let base = if row.enabled { theme.track() } else { theme.disabled() };
+                self.brush.SetColor(&base);
+                self.target.FillRoundedRectangle(&track, &self.brush);
+
+                // Bagian terisi.
+                let ratio = row.pct as f32 / 100.0;
+                let filled_right = track_left + (track_right - track_left) * ratio;
+                if row.enabled && filled_right > track_left {
+                    let filled = D2D1_ROUNDED_RECT {
+                        rect: D2D_RECT_F {
+                            left: track_left,
+                            top: track.rect.top,
+                            right: filled_right,
+                            bottom: track.rect.bottom,
+                        },
+                        radiusX: track_height / 2.0,
+                        radiusY: track_height / 2.0,
+                    };
+                    self.brush.SetColor(&theme.fill());
+                    self.target.FillRoundedRectangle(&filled, &self.brush);
+                }
+
+                // Thumb hanya muncul saat baris disentuh/di-drag, seperti flyout
+                // volume Windows yang diam tidak menampilkan handle.
+                let active = hover == Some(index) || dragging == Some(index);
+                if active {
+                    let radius = THUMB_RADIUS_DIP * scale;
+                    let thumb = D2D1_ELLIPSE {
+                        point: windows_numerics::Vector2 {
+                            X: filled_right.max(track_left).min(track_right),
+                            Y: center_y,
+                        },
+                        radiusX: radius,
+                        radiusY: radius,
+                    };
+                    self.brush.SetColor(if row.enabled {
+                        &theme.text()
+                    } else {
+                        &theme.disabled()
+                    });
+                    self.target.FillEllipse(&thumb, &self.brush);
+                }
+
+                // Angka persen.
+                if let Some((_, format, _)) = &self.text_format {
+                    self.brush.SetColor(&theme.text());
+                    let text: Vec<u16> = format!("{}", row.pct).encode_utf16().collect();
+                    let rect = D2D_RECT_F {
+                        left: width - pad - text_width,
+                        top,
+                        right: width - pad,
+                        bottom: top + row_height,
+                    };
+                    self.target.DrawText(
+                        &text,
+                        format,
+                        &rect,
+                        &self.brush,
+                        D2D1_DRAW_TEXT_OPTIONS_NONE,
+                        DWRITE_MEASURING_MODE_NATURAL,
+                    );
+                }
+            }
+        }
+    }
+}
