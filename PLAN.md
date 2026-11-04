@@ -381,7 +381,8 @@ membuat proses hang.
 ### Fase 2 — Shell aplikasi · ~1–2 hari
 
 Message loop, tray icon, window flyout kosong yang bisa show/hide, sinyal single-instance.
-Renderer Direct2D dasar (kotak + teks untuk verifikasi channel alpha).
+Placeholder digambar dengan GDI; renderer Direct2D + DirectComposition dipindah ke Fase 3
+(butuh swapchain alpha untuk acrylic, lebih masuk akal dikerjakan bersama visualnya).
 
 **Kriteria selesai:** klik tray membuka/menutup flyout di posisi yang benar pada dua monitor dengan
 skala DPI berbeda; `Esc` dan klik di luar menutup; app tidak muncul di Alt+Tab.

@@ -1,6 +1,6 @@
 # Progress
 
-Diperbarui: fase 1 selesai.
+Diperbarui: fase 2 selesai.
 
 ## Status
 
@@ -8,7 +8,7 @@ Diperbarui: fase 1 selesai.
 |---|---|---|
 | 0 | Probe DDC/CI (gate) | ✅ lulus |
 | 1 | Core library | ✅ selesai |
-| 2 | Shell: tray + flyout | ⬜ belum |
+| 2 | Shell: tray + flyout | ✅ selesai |
 | 3 | Visual match flyout volume | ⬜ belum |
 | 4 | Fitur (multi-monitor, sync, persist, autostart) | ⬜ belum |
 | 5 | Robustness + packaging | ⬜ belum |
@@ -31,24 +31,20 @@ current  : 50%
 - Tulis 70% → dibaca balik 70%. Tulis 50% → dibaca balik 50%.
 - Config tersimpan di `%APPDATA%\Brightfly\config.ini` dan terbaca ulang dengan benar.
 
-Kesimpulan: **tidak perlu mundur ke gamma-only.** Fallback gamma tetap ada untuk monitor
-yang nanti tidak mendukung.
+## Fase 2 — hasil uji
 
-## Yang sudah jalan (fase 1)
-
-Perintah CLI:
-
-```
-brightfly probe          # daftar monitor + metode + nilai sekarang
-brightfly set <0..100>   # set semua monitor, lalu baca ulang sebagai verifikasi
-brightfly stress         # uji coalescing: 200 perubahan cepat
-brightfly --version
-```
-
-Hasil uji coalescing: 200 perubahan terkirim dalam 381 ms, nilai akhir tepat 62%.
-Artinya drag slider tidak akan menumpuk antrian dan tidak memblokir pemanggil.
-
-10 unit test lulus (parser config, render round-trip, perhitungan gamma).
+| Uji | Metode | Hasil |
+|---|---|---|
+| Icon tray muncul | proses berjalan | ✅ |
+| Klik tray membuka flyout | instance kedua memicu `WM_TOGGLE` | ✅ visible=true |
+| Klik tray menutup flyout | idem | ✅ visible=false |
+| `Esc` menutup | `SendKeys {ESC}` | ✅ |
+| Klik di luar menutup | flyout kehilangan fokus | ✅ |
+| Tidak muncul di Alt+Tab | `WS_EX_TOOLWINDOW` (exstyle 0x88) | ✅ |
+| Single instance | instance kedua langsung keluar | ✅ |
+| Posisi | di atas tray, di-clamp ke work area | ✅ |
+| Working set | Task Manager | 15.4 MB (debug) |
+| Thread | — | 4 |
 
 ## Keputusan teknis yang diambil
 
@@ -58,17 +54,35 @@ Artinya drag slider tidak akan menumpuk antrian dan tidak memblokir pemanggil.
   jadi unplug/replug tidak meninggalkan handle basi.
 - **Join handle tidak di-join saat shutdown.** Proses harus tetap bisa keluar walau ada
   panggilan DDC yang menggantung.
-- **`GetDeviceGammaRamp` ada di `Win32::UI::ColorSystem`, bukan `Win32::Graphics::Gdi`**
-  (catatan untuk fase berikutnya, sudah ditangani).
+- **State controller disimpan di `GWLP_USERDATA`, bukan `thread_local`.** Wndproc bisa
+  dipanggil reentran selama `SetWindowPos`; `thread_local` + `RefCell` akan panic.
+- **`force_foreground()` pakai `AttachThreadInput`.** `SetForegroundWindow` polos ditolak
+  Windows kalau proses bukan penerima input terakhir, akibatnya `Esc` tidak sampai ke flyout.
+- **`GetDeviceGammaRamp` ada di `Win32::UI::ColorSystem`**, bukan `Win32::Graphics::Gdi`.
+
+## Penyimpangan dari plan
+
+- Fase 2 memakai **GDI placeholder**, bukan Direct2D. Renderer Direct2D + DirectComposition
+  dipindah ke Fase 3 karena butuh swapchain alpha yang memang untuk acrylic.
+  Akibatnya window belum `WS_EX_NOREDIRECTIONBITMAP`; itu ikut berubah di Fase 3.
 
 ## Utang teknis yang diketahui
 
-- Nama monitor masih `Generic PnP Monitor` karena `EnumDisplayDevicesW` tidak memberi nama
-  EDID untuk perangkat ini. Perlu baca EDID dari registry (`HKLM\SYSTEM\CurrentControlSet\Enum\DISPLAY\*\Device Parameters\EDID`)
-  memakai `DeviceID` sebagai kunci. Dikerjakan di fase 4 (UI multi-monitor).
-- Belum ada penanganan `WM_DISPLAYCHANGE`; `Supervisor::rescan()` sudah tersedia tapi
-  belum ada pemanggil karena belum ada message loop.
+- Nama monitor masih `Generic PnP Monitor` (perlu baca EDID dari registry). Fase 4.
+- Posisi flyout bergantung `Shell_NotifyIconGetRect`; kalau icon masuk overflow area,
+  hasilnya kurang presisi. Perlu diuji di Fase 5.
+- Belum ada penanganan resume dari sleep (butuh `WM_POWERBROADCAST`). Fase 4.
+- Config belum disimpan saat keluar. Fase 4.
+
+## Cara menjalankan
+
+```
+cargo run                # aplikasi tray
+cargo run -- probe       # daftar monitor
+cargo run -- set 70      # set brightness
+cargo run -- stress      # uji coalescing
+```
 
 ## Langkah berikutnya
 
-Fase 2: message loop, tray icon, window flyout kosong, single-instance mutex.
+Fase 3: DirectComposition + swapchain alpha, backdrop acrylic, slider, animasi, tema.

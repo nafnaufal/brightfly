@@ -1,5 +1,7 @@
+mod app;
 mod config;
 mod monitor;
+mod ui;
 
 use std::process::ExitCode;
 use std::thread;
@@ -10,11 +12,12 @@ use monitor::{Method, State, Supervisor};
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let command = args.first().map(String::as_str).unwrap_or("help");
+    let command = args.first().map(String::as_str);
 
     match command {
-        "probe" => probe(),
-        "set" => {
+        None => app::run(),
+        Some("probe") => probe(),
+        Some("set") => {
             let Some(raw) = args.get(1) else {
                 eprintln!("brightfly set: butuh nilai 0..100");
                 return ExitCode::from(2);
@@ -25,16 +28,16 @@ fn main() -> ExitCode {
             };
             set(pct)
         }
-        "help" | "-h" | "--help" => {
+        Some("help") | Some("-h") | Some("--help") => {
             usage();
             ExitCode::SUCCESS
         }
-        "stress" => stress(),
-        "--version" | "-V" => {
+        Some("stress") => stress(),
+        Some("--version") | Some("-V") => {
             println!("brightfly {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
-        other => {
+        Some(other) => {
             eprintln!("perintah tidak dikenal: {other}\n");
             usage();
             ExitCode::from(2)
