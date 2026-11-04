@@ -1,6 +1,6 @@
 # Progress
 
-Diperbarui: pasca-fase 5 (rescan thread latar, ikon PNG).
+Diperbarui: pasca-fase 5 (rescan thread latar, ikon PNG, perbaikan klik tray).
 
 ## Status
 
@@ -92,6 +92,43 @@ di UI thread: monitor yang lambat bisa membekukan UI beberapa detik. Sekarang:
 | Resume | kirim `PBT_APMRESUMEAUTOMATIC`, buka, klik 30% | visible, monitor 30%, config ikut ✅ |
 | Unit test | `cargo test` | 16 lulus (3 test prioritas nilai baru) ✅ |
 | Monitor benar-benar lambat | — | tidak bisa diuji; tidak ada monitor yang menggantung |
+
+## Perbaikan — klik tray tidak membuka flyout
+
+Gejala: satu klik kiri pada icon tray tidak menampilkan flyout sama sekali.
+
+Penyebab ditemukan lewat log sementara di wndproc tray: dengan
+`NOTIFYICON_VERSION_4`, satu klik kiri menghasilkan **tiga** pesan berurutan:
+
+```
+event=0x0201 (WM_LBUTTONDOWN)
+event=0x0202 (WM_LBUTTONUP)
+event=0x0400 (NIN_SELECT)
+```
+
+Handler lama memproses ketiganya sebagai `toggle()`, sehingga flyout
+buka → tutup → buka/tutup lagi dan akhirnya tertahan oleh guard
+`hidden_recently` di flyout. Klik kanan punya masalah serupa:
+`WM_RBUTTONUP` lalu `WM_CONTEXTMENU`.
+
+Perbaikan:
+
+- `WM_TRAY` hanya menangani `NIN_SELECT` dan `NIN_KEYSELECT` → `toggle()`.
+- `WM_CONTEXTMENU` saja yang membuka menu.
+- Konstanta `NIN_KEYSELECT` didefinisikan lokal (`NIN_SELECT + 1`) karena crate
+  `windows` 0.62 tidak mengekspornya. Tanpa konstanta itu, pola match menjadi
+  binding variabel baru dan memicu `E0408`.
+- Log debug sementara dihapus.
+
+| Uji | Metode | Hasil |
+|---|---|---|
+| Klik kiri 1 | klik fisik via `mouse_event` pada icon tray | flyout terbuka, 192×48 ✅ |
+| Klik kiri 2 | klik fisik lagi | flyout tertutup ✅ |
+| Klik kiri 3 | klik fisik lagi | flyout terbuka ✅ |
+| Klik kanan | klik fisik kanan | menu muncul (`#32768`), flyout tetap tertutup ✅ |
+| Escape | `keybd_event(VK_ESCAPE)` | menu tertutup ✅ |
+| Build release | ulangi seluruh urutan di atas pada exe release | hasil sama ✅ |
+| Unit test | `cargo test` | 16 lulus ✅ |
 
 ## Hasil gate (fase 0)
 

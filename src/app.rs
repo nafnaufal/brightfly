@@ -23,7 +23,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetWindowLongPtrW, TrackPopupMenu, TranslateMessage, CS_HREDRAW, CS_VREDRAW, GWLP_USERDATA,
     MF_CHECKED, MF_SEPARATOR, MF_STRING, MSG, PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND,
     TPM_NONOTIFY, TPM_RETURNCMD, WM_APP, WM_CONTEXTMENU as WM_CONTEXTMENU_MSG, WM_DESTROY,
-    WM_DISPLAYCHANGE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_POWERBROADCAST, WM_RBUTTONUP, WM_TIMER,
+    WM_DISPLAYCHANGE, WM_POWERBROADCAST, WM_TIMER,
     WNDCLASSW, WS_OVERLAPPED,
 };
 
@@ -43,6 +43,11 @@ pub const WM_SET_BRIGHTNESS: u32 = WM_APP + 3;
 pub const WM_FLYOUT_HIDDEN: u32 = WM_APP + 4;
 /// Dikirim thread scan setelah enumerasi monitor selesai.
 const WM_RESCAN_DONE: u32 = WM_APP + 5;
+
+/// `NIN_KEYSELECT` tidak diekspor crate `windows`; di shellapi.h nilainya
+/// `NIN_SELECT + 1`. Klik keyboard (Enter/Space pada icon) harus diperlakukan
+/// sama dengan klik kiri.
+const NIN_KEYSELECT: u32 = NIN_SELECT + 1;
 
 const TIMER_SAVE: usize = 1;
 const SAVE_DELAY_MS: u32 = 500;
@@ -468,8 +473,12 @@ unsafe extern "system" fn controller_wndproc(
                 let event = (lparam.0 as u32) & 0xFFFF;
                 let controller = &mut *pointer;
                 match event {
-                    NIN_SELECT | WM_LBUTTONDOWN | WM_LBUTTONUP => controller.toggle(),
-                    WM_CONTEXTMENU_MSG | WM_RBUTTONUP => controller.menu(),
+                    // NOTIFYICON_VERSION_4 mengirim NIN_SELECT setelah
+                    // WM_LBUTTONUP. Menangani keduanya membuat satu klik
+                    // membuka lalu langsung menutup flyout.
+                    NIN_SELECT | NIN_KEYSELECT => controller.toggle(),
+                    // WM_RBUTTONUP juga dikirim sebelum WM_CONTEXTMENU.
+                    WM_CONTEXTMENU_MSG => controller.menu(),
                     _ => {}
                 }
                 LRESULT(0)
