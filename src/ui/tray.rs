@@ -5,26 +5,41 @@
 
 use std::mem::size_of;
 
-use windows::Win32::Foundation::{HWND, RECT};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{HINSTANCE, HWND, RECT};
 use windows::Win32::UI::Shell::{
     Shell_NotifyIconGetRect, Shell_NotifyIconW, NIF_ICON, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP,
     NIM_ADD, NIM_DELETE, NIM_SETVERSION, NOTIFYICONDATAW, NOTIFYICON_VERSION_4,
     NOTIFYICONIDENTIFIER,
 };
-use windows::Win32::UI::WindowsAndMessaging::{LoadIconW, IDI_APPLICATION};
+use windows::Win32::UI::WindowsAndMessaging::{
+    DestroyIcon, GetSystemMetrics, LoadIconW, LoadImageW, HICON, IDI_APPLICATION, IMAGE_ICON,
+    LR_DEFAULTCOLOR, SM_CXSMICON,
+};
 
 pub const TRAY_ID: u32 = 1;
 
+/// Resource ID icon di exe (lihat `build.rs`).
+const RESOURCE_ICON: u16 = 1;
+
 pub struct Tray {
     hwnd: HWND,
+    icon: HICON,
+    /// Icon dari resource harus dihancurkan; icon bawaan Windows tidak.
+    owned_icon: bool,
     added: bool,
 }
 
 impl Tray {
-    pub fn add(hwnd: HWND, callback_message: u32, tooltip: &str) -> Option<Self> {
-        unsafe {
-            let icon = LoadIconW(None, IDI_APPLICATION).ok()?;
+    pub fn add(
+        instance: HINSTANCE,
+        hwnd: HWND,
+        callback_message: u32,
+        tooltip: &str,
+    ) -> Option<Self> {
+        let (icon, owned_icon) = load_icon(instance)?;
 
+        unsafe {
             let mut data = NOTIFYICONDATAW::default();
             data.cbSize = size_of::<NOTIFYICONDATAW>() as u32;
             data.hWnd = hwnd;
@@ -35,14 +50,22 @@ impl Tray {
             write_tip(&mut data.szTip, tooltip);
 
             if !Shell_NotifyIconW(NIM_ADD, &data).as_bool() {
+                if owned_icon {
+                    let _ = DestroyIcon(icon);
+                }
                 return None;
             }
 
             data.Anonymous.uVersion = NOTIFYICON_VERSION_4;
             let _ = Shell_NotifyIconW(NIM_SETVERSION, &data);
-
-            Some(Self { hwnd, added: true })
         }
+
+        Some(Self {
+            hwnd,
+            icon,
+            owned_icon,
+            added: true,
+        })
     }
 
     /// Posisi icon di taskbar. `None` kalau icon sedang di overflow area.
@@ -74,6 +97,33 @@ impl Tray {
 impl Drop for Tray {
     fn drop(&mut self) {
         self.remove();
+        if self.owned_icon && !self.icon.is_invalid() {
+            unsafe {
+                let _ = DestroyIcon(self.icon);
+            }
+        }
+    }
+}
+
+/// Muat icon aplikasi dari resource exe; fallback ke icon bawaan Windows
+/// kalau resource tidak ikut ter-embed (mis. `rc.exe` tidak tersedia).
+fn load_icon(instance: HINSTANCE) -> Option<(HICON, bool)> {
+    unsafe {
+        let size = GetSystemMetrics(SM_CXSMICON);
+        if let Ok(handle) = LoadImageW(
+            Some(instance),
+            PCWSTR(RESOURCE_ICON as usize as *const u16),
+            IMAGE_ICON,
+            size,
+            size,
+            LR_DEFAULTCOLOR,
+        ) {
+            return Some((HICON(handle.0), true));
+        }
+
+        LoadIconW(None, IDI_APPLICATION)
+            .ok()
+            .map(|icon| (icon, false))
     }
 }
 

@@ -1,6 +1,6 @@
 # Progress
 
-Diperbarui: fase 4 selesai.
+Diperbarui: fase 5 selesai.
 
 ## Status
 
@@ -11,10 +11,57 @@ Diperbarui: fase 4 selesai.
 | 2 | Shell: tray + flyout | ✅ selesai |
 | 3 | Visual match flyout volume | ✅ selesai |
 | 4 | Fitur (multi-monitor, sync, persist, autostart) | ✅ selesai* |
-| 5 | Robustness + packaging | ⬜ belum |
+| 5 | Robustness + packaging | ✅ selesai* |
 
-\* Semua butir Fase 4 selesai kecuali scroll di atas icon tray; lihat
+\* Butir yang tidak bisa diuji di mesin ini didokumentasikan di bagian
 "Penyimpangan dari plan" dan "Utang teknis".
+
+## Fase 5 — hasil uji
+
+Ikon dan version info:
+
+- `scripts/make-icon.ps1` menghasilkan `assets/brightfly.ico` dengan 8 ukuran
+  (16/20/24/32/40/48/64/256, 32-bit BGRA). Frame 256 diverifikasi terpisah
+  dengan `System.Drawing.Icon` → PNG.
+- `build.rs` mencari `rc.exe` (env `RC`, Windows SDK, lalu PATH) dan
+  mengompilasi resource dengan icon ID `1` + `VERSIONINFO`. Kalau `rc.exe`
+  tidak ada, build tetap jalan dengan warning dan tray memakai icon bawaan.
+- `Tray` memuat icon lewat `LoadImageW` pada ukuran `SM_CXSMICON`; fallback
+  `IDI_APPLICATION`. Icon hasil resource terlihat benar di taskbar.
+- File properties exe: `FileDescription=Brightfly`, `FileVersion=0.1.0`,
+  `ProductVersion=0.1.0`.
+
+Packaging:
+
+- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (128.817 byte),
+  berisi `brightfly.exe` (542.208 byte) dan `README.md`.
+- Zip diekstrak ke folder lain dan exe dijalankan: ✅ tray muncul,
+  `--version` mencetak `brightfly 0.1.0`.
+
+| Uji | Metode | Hasil |
+|---|---|---|
+| Ukuran exe | `target\release\brightfly.exe` | 542.208 byte (0,52 MB; target ≤3 MB) ✅ |
+| Start sampai tray terdaftar | 5× start, poll `Shell_NotifyIconGetRect` | median 117 ms (117–189; target ≤300 ms) ✅ |
+| Waktu buka flyout | `WM_TOGGLE` + `UpdateWindow`, 10× | median 19,3 ms (12,6–36,1; target ≤60 ms) ✅ |
+| CPU idle | 60 detik, `TotalProcessorTime` | 0 ms (<15,6 ms granularitas; target 0%) ✅ |
+| Working set idle | 60 detik setelah start | 10,5 MB WS, 1,6 MB private, 2 thread ✅ |
+| Working set flyout terbuka | 700 ms setelah show | 22,7 MB WS, 5,0 MB private, 8 thread (WS target ≤25 MB) ✅ |
+| CPU drag | 150 gerakan, 2,5 detik | <15,6 ms CPU (di bawah granularitas) ✅ |
+| Drag cepat / coalescing | `brightfly stress` | 200 perubahan dalam 305 ms, selisih akhir 0 poin ✅ |
+| Build tanpa `rc.exe` | jalur fallback di `build.rs` | belum diuji langsung; fallback memakai icon bawaan Windows |
+| Monitor lambat / macet | — | tidak bisa diuji (hanya satu monitor, tidak ada monitor bermasalah) |
+| Sleep/resume nyata | — | tidak bisa diuji di sesi ini; pesan resume disimulasikan di Fase 4 |
+| Monitor dimatikan saat aplikasi jalan | — | tidak bisa diuji (tidak ada monitor cadangan) |
+| HDR on/off | — | tidak bisa diuji (monitor uji tanpa HDR) |
+| Unplug/replug fisik | — | tidak bisa diuji (satu monitor, dipakai untuk sesi ini) |
+| Resolusi berubah nyata | — | tidak bisa diuji tanpa mengubah display aktif; `WM_DISPLAYCHANGE` disimulasikan di Fase 4 |
+
+Catatan pengukuran: start dihitung dari `Start-Process` sampai
+`Shell_NotifyIconGetRect` berhasil, jadi termasuk pembuatan proses. Jumlah
+thread berfluktuasi tergantung waktu sampel (thread helper DDC/WARP bisa
+sudah berhenti); angka idle 2 dan flyout 8 adalah sampel 60 detik/700 ms.
+
+## Fase 4 — hasil uji
 
 ## Hasil gate (fase 0)
 
@@ -123,6 +170,12 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   `DISPLAYCONFIG_SOURCE_DEVICE_NAME`.
 - **Label nama hanya muncul saat baris > 1.** Tinggi tiap baris bertambah 16 DIP untuk pita
   nama, sesuai PLAN bagian 3.1; flyout satu monitor tetap 192×48 seperti flyout volume.
+- **Icon dan version info ditanam lewat `build.rs`, bukan crate tambahan.** `rc.exe`
+  dicari di Windows SDK; resource hasil kompilasi diteruskan dengan
+  `cargo:rustc-link-arg`. Tidak ada dependency build baru dan build tetap jalan
+  (dengan warning) di mesin tanpa Windows SDK.
+- **Distribusi berupa zip portable.** PLAN mengizinkan zip saja; NSIS/WiX tidak tersedia
+  di mesin build dan installer tidak menambah nilai untuk aplikasi per-user tanpa service.
 
 ## Penyimpangan dari plan
 
@@ -146,6 +199,10 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   `WH_MOUSE_LL`, yang membuat UI thread terus dibangunkan oleh gerakan mouse dan
   bertentangan dengan target "sangat ringan". Diputuskan dilewati; scroll tetap
   berfungsi saat kursor berada di atas flyout.
+- **Budget thread ≤6 terlampaui saat flyout terbuka (8 thread).** Idle hanya 2 thread,
+  tetapi membuat `ID2D1DCRenderTarget` memuat WARP/D2D helper thread. Menghapusnya berarti
+  kembali ke GDI dan kehilangan antialiasing teks/ bentuk. Working set tetap 22,7 MB
+  (target ≤25 MB) dan CPU idle 0%, jadi penyimpangan ini diterima dan dicatat.
 
 ## Utang teknis yang diketahui
 
@@ -153,7 +210,7 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   penyimpangan di atas.
 - **Enumerasi + probe masih berjalan di UI thread** saat start, `WM_DISPLAYCHANGE`, dan
   resume. Dengan banyak monitor atau monitor yang lambat, flyout bisa tertunda sesaat.
-  Kandidat perbaikan: pindahkan rescan ke thread terpisah di Fase 5.
+  Kandidat perbaikan: pindahkan rescan ke thread terpisah.
 - **Sinkronisasi dua monitor nyata dan unplug/replug fisik belum diuji** karena mesin uji
   hanya punya satu monitor.
 - **Nama monitor panjang dipotong di kartu 192 px** (satu baris, tanpa tooltip).
@@ -163,9 +220,14 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   DDC vs gamma; config hanya menyimpan hasilnya.
 - **`step` hanya bisa diubah lewat file config**, belum ada kontrol di UI.
 - Posisi flyout bergantung `Shell_NotifyIconGetRect`; kalau icon masuk overflow area,
-  hasilnya kurang presisi. Perlu diuji di Fase 5.
+  hasilnya kurang presisi dan belum diuji.
 - Wheel hanya aktif saat kursor berada di atas flyout (perilaku sama dengan flyout
   volume Windows), jadi tidak bisa diuji jarak jauh tanpa menjaga posisi kursor.
+- **Hanya tersedia paket zip, belum ada installer/uninstaller.** Autostart harus
+  dimatikan lewat menu sebelum exe dihapus.
+- **Frame 256 pada ICO disimpan sebagai DIB**, sehingga resource icon menambah
+  ±313 KB ke exe. Bisa dikonversi ke PNG untuk menghemat ±270 KB bila ukuran
+  menjadi masalah; target ≤3 MB sudah terpenuhi.
 
 ## Cara menjalankan
 
@@ -176,7 +238,15 @@ cargo run -- set 70      # set brightness
 cargo run -- stress      # uji coalescing
 ```
 
+Build dan paket rilis:
+
+```powershell
+cargo build --release
+.\scripts\package.ps1
+```
+
 ## Langkah berikutnya
 
-Fase 5: robustness (sleep/resume nyata, monitor dimatikan, HDR, drag cepat, resolusi
-berubah), packaging portable/installer, dan ikon aplikasi.
+Fase 0–5 selesai. Pekerjaan lanjutan yang masuk akal: installer/uninstaller,
+pengujian di mesin multi-monitor/HDR, dan memindahkan rescan monitor ke thread
+terpisah bila jumlah monitor bertambah.

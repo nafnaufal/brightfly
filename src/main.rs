@@ -56,7 +56,7 @@ Pemakaian:
   brightfly stress         Kirim 200 perubahan cepat untuk menguji coalescing
   brightfly --version
 
-Tanpa argumen, aplikasi tray akan dijalankan (belum tersedia di fase ini).",
+Tanpa argumen, aplikasi tray akan dijalankan.",
         env!("CARGO_PKG_VERSION")
     );
 }

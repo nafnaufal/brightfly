@@ -297,7 +297,12 @@ pub fn run() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let Some(tray_icon) = Tray::add(hwnd, WM_TRAY, "Brightfly — brightness monitor") else {
+    let Some(tray_icon) = Tray::add(
+        instance,
+        hwnd,
+        WM_TRAY,
+        "Brightfly — brightness monitor",
+    ) else {
         eprintln!("Gagal memasang icon tray.");
         return ExitCode::FAILURE;
     };
