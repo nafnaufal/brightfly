@@ -15,6 +15,9 @@ fn main() {
     println!("cargo:rerun-if-changed={ICON_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
 
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR tidak ada"));
+    emit_setup_payload(&out_dir);
+
     let Some(rc) = find_rc() else {
         println!(
             "cargo:warning=rc.exe tidak ditemukan; exe dibangun tanpa icon resource"
@@ -22,15 +25,70 @@ fn main() {
         return;
     };
 
-    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR tidak ada"));
     let icon = fs::canonicalize(ICON_PATH).expect("icon tidak ditemukan");
     let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
 
-    let rc_file = out_dir.join("brightfly.rc");
-    fs::write(&rc_file, resource_script(&icon, &version)).expect("gagal menulis .rc");
+    link_resource(&rc, &out_dir, &icon, &version, "brightfly", "Brightfly", "brightfly.exe");
+    link_resource(
+        &rc,
+        &out_dir,
+        &icon,
+        &version,
+        "brightfly-setup",
+        "Brightfly Setup",
+        "setup.exe",
+    );
+}
 
-    let res_file = out_dir.join("brightfly.res");
-    let status = Command::new(&rc)
+/// Membuat `setup_payload.rs` yang di-`include!` oleh `src/bin/setup.rs`.
+///
+/// Payload hanya terisi kalau `BRIGHTFLY_PAYLOAD_DIR` diarahkan ke folder yang
+/// berisi `brightfly.exe` dan `README.md`. `scripts/package.ps1` yang mengatur
+/// variabel itu; `cargo build` biasa tetap berhasil dengan payload kosong.
+fn emit_setup_payload(out_dir: &Path) {
+    println!("cargo:rerun-if-env-changed=BRIGHTFLY_PAYLOAD_DIR");
+
+    let dir = env::var_os("BRIGHTFLY_PAYLOAD_DIR").map(PathBuf::from);
+    let mut code = String::new();
+    let mut ready = true;
+
+    for (name, file) in [("APP_EXE", "brightfly.exe"), ("README", "README.md")] {
+        let path = dir.as_ref().map(|dir| dir.join(file)).filter(|path| path.is_file());
+        match path {
+            Some(path) => {
+                let path = fs::canonicalize(&path).unwrap_or(path);
+                println!("cargo:rerun-if-changed={}", path.display());
+                let literal = path.to_string_lossy().replace('\\', "/");
+                code.push_str(&format!(
+                    "pub static {name}: &[u8] = include_bytes!(r#\"{literal}\"#);\n"
+                ));
+            }
+            None => {
+                ready = false;
+                code.push_str(&format!("pub static {name}: &[u8] = &[];\n"));
+            }
+        }
+    }
+
+    code.push_str(&format!("pub const READY: bool = {ready};\n"));
+    fs::write(out_dir.join("setup_payload.rs"), code).expect("gagal menulis setup_payload.rs");
+}
+
+fn link_resource(
+    rc: &Path,
+    out_dir: &Path,
+    icon: &Path,
+    version: &str,
+    bin: &str,
+    description: &str,
+    original: &str,
+) {
+    let rc_file = out_dir.join(format!("{bin}.rc"));
+    let script = resource_script(icon, version, description, original);
+    fs::write(&rc_file, script).expect("gagal menulis .rc");
+
+    let res_file = out_dir.join(format!("{bin}.res"));
+    let status = Command::new(rc)
         .arg("/nologo")
         .arg("/fo")
         .arg(&res_file)
@@ -39,16 +97,16 @@ fn main() {
 
     match status {
         Ok(status) if status.success() => {
-            println!("cargo:rustc-link-arg={}", res_file.display());
+            println!("cargo:rustc-link-arg-bin={bin}={}", res_file.display());
         }
         Ok(status) => println!(
-            "cargo:warning=rc.exe keluar dengan status {status}; resource dilewati"
+            "cargo:warning=rc.exe keluar dengan status {status}; resource {bin} dilewati"
         ),
         Err(error) => println!("cargo:warning=gagal menjalankan rc.exe: {error}"),
     }
 }
 
-fn resource_script(icon: &Path, version: &str) -> String {
+fn resource_script(icon: &Path, version: &str, description: &str, original: &str) -> String {
     // Resource ID 1 dipakai `LoadImageW` di tray.
     let icon = icon.display().to_string().replace('\\', "\\\\");
     let numeric = numeric_version(version);
@@ -66,10 +124,10 @@ BEGIN
   BEGIN
     BLOCK "040904B0"
     BEGIN
-      VALUE "FileDescription", "Brightfly"
+      VALUE "FileDescription", "{description}"
       VALUE "FileVersion", "{version}"
       VALUE "InternalName", "brightfly"
-      VALUE "OriginalFilename", "brightfly.exe"
+      VALUE "OriginalFilename", "{original}"
       VALUE "ProductName", "Brightfly"
       VALUE "ProductVersion", "{version}"
     END

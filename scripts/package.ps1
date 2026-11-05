@@ -1,7 +1,8 @@
 # Membuat paket distribusi: dist/brightfly-<versi>-win64.zip
 #
-# Isi paket: brightfly.exe, README.md, install.cmd/ps1, dan uninstall.cmd/ps1.
-# Installer per-user menyalin file ke %LOCALAPPDATA%\Programs\Brightfly.
+# Isi paket: brightfly.exe (portable), setup.exe (installer/uninstaller
+# native), dan README.md. Setup menanam exe + README di dalam dirinya saat
+# dibangun, jadi payload disiapkan lebih dulu di folder stage.
 
 param(
     [switch]$SkipBuild
@@ -12,9 +13,9 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 if (-not $SkipBuild) {
-    cargo build --release
+    cargo build --release --bin brightfly
     if ($LASTEXITCODE -ne 0) {
-        throw "cargo build --release gagal"
+        throw "cargo build --release --bin brightfly gagal"
     }
 }
 
@@ -41,9 +42,24 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 
 Copy-Item $exe $stage
 Copy-Item (Join-Path $root "README.md") $stage
-foreach ($file in "install.ps1", "install.cmd", "uninstall.ps1", "uninstall.cmd") {
-    Copy-Item (Join-Path $root "scripts\$file") $stage
+
+# Setup selalu dibangun ulang dengan payload dari stage, termasuk saat
+# -SkipBuild dipakai (yang dilewati hanya build aplikasi).
+$env:BRIGHTFLY_PAYLOAD_DIR = $stage
+try {
+    cargo build --release --bin brightfly-setup
+    if ($LASTEXITCODE -ne 0) {
+        throw "cargo build --release --bin brightfly-setup gagal"
+    }
+} finally {
+    Remove-Item Env:\BRIGHTFLY_PAYLOAD_DIR -ErrorAction SilentlyContinue
 }
+
+$setup = Join-Path $root "target\release\brightfly-setup.exe"
+if (-not (Test-Path $setup)) {
+    throw "Installer tidak ditemukan: $setup"
+}
+Copy-Item $setup (Join-Path $stage "setup.exe")
 
 if (Test-Path $zip) {
     Remove-Item $zip -Force

@@ -5,8 +5,14 @@ edition = "2024"
 description = "Brightness slider untuk monitor eksternal Windows 11"
 
 [dependencies]
-windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Devices_Display", "Win32_UI_ColorSystem", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_Security", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite", "Win32_System_Registry", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Accessibility"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Devices_Display", "Win32_UI_ColorSystem", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_HiDpi", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_System_Com", "Win32_Security", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Accessibility"] }
 windows-numerics = "0.3"
+
+# Installer/uninstaller native. Payload brightfly.exe + README ditanam saat
+# scripts/package.ps1 berjalan (lihat build.rs).
+[[bin]]
+name = "brightfly-setup"
+path = "src/bin/setup.rs"
 
 [profile.release]
 opt-level = "s"

@@ -5,6 +5,7 @@ flyout yang meniru flyout volume Windows. Ditulis dengan Rust + Win32 native
 dan Direct2D, tanpa WebView, tanpa runtime XAML, dan tanpa dependency besar.
 
 - Ukuran exe ± 0,31 MB (termasuk icon multi-resolusi)
+- Installer native `setup.exe` ± 0,61 MB, per-user tanpa admin
 - Idle ± 10,6 MB working set, 2 thread, CPU 0%
 - DDC/CI VCP `0x10`; gamma ramp sebagai fallback
 - Satu baris slider per monitor; sinkronisasi opsional
@@ -15,20 +16,24 @@ dan Direct2D, tanpa WebView, tanpa runtime XAML, dan tanpa dependency besar.
 
 ## Instalasi
 
-Ekstrak `brightfly-<versi>-win64.zip`, lalu jalankan `install.cmd`. Installer
-per-user ini tidak butuh admin dan menyalin aplikasi ke
+Ekstrak `brightfly-<versi>-win64.zip`, lalu jalankan `setup.exe`. Installer
+native per-user ini tidak butuh admin dan menyalin aplikasi ke
 `%LOCALAPPDATA%\Programs\Brightfly`, membuat shortcut Start Menu, mendaftarkan
 entri di Settings → Apps, dan mengaktifkan autostart.
 
 ```powershell
-.\install.cmd                 # install + autostart + jalankan
-.\install.cmd -NoAutostart    # tanpa autostart
-.\install.cmd -NoStart        # tanpa langsung menjalankan
+.\setup.exe                  # install + autostart + jalankan
+.\setup.exe --no-autostart   # tanpa autostart
+.\setup.exe --no-start       # tanpa langsung menjalankan
+.\setup.exe --quiet          # tanpa dialog
 ```
 
-Untuk melepas, jalankan `uninstall.cmd` (ada di folder instalasi), atau lewat
+Untuk melepas, jalankan `uninstall.exe` (ada di folder instalasi), atau lewat
 Settings → Apps. Config di `%APPDATA%\Brightfly` dipertahankan; tambahkan
-`-PurgeConfig` kalau ingin menghapusnya juga.
+`--purge-config` kalau ingin menghapusnya juga.
+
+`brightfly.exe` tetap bisa dijalankan langsung sebagai versi portable tanpa
+instalasi.
 
 ## Pemakaian
 
@@ -75,9 +80,11 @@ cargo build --release
 .\scripts\package.ps1
 ```
 
-Menghasilkan `dist\brightfly-<versi>-win64.zip` berisi exe, README, serta
-`install.cmd/ps1` dan `uninstall.cmd/ps1`. Instalasi dan uninstall tidak
-memakai admin; keduanya hanya menulis ke HKCU dan folder user.
+Menghasilkan `dist\brightfly-<versi>-win64.zip` berisi `brightfly.exe`
+(portable), `setup.exe`, dan README. `setup.exe` dibangun dengan payload exe +
+README tertanam, jadi jalankan script ini setiap kali merilis versi baru.
+Instalasi dan uninstall tidak memakai admin; keduanya hanya menulis ke HKCU
+dan folder user.
 
 Icon dibuat ulang dengan:
 

@@ -37,9 +37,9 @@ Ikon dan version info:
 
 Packaging:
 
-- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (149.951 byte),
-  berisi `brightfly.exe` (310.272 byte), `README.md`, serta
-  `install.cmd/ps1` dan `uninstall.cmd/ps1`.
+- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (421.336 byte),
+  berisi `brightfly.exe` (310.272 byte), `setup.exe` (606.720 byte), dan
+  `README.md`. `setup.exe` membawa exe + README di dalam dirinya.
 - Zip diekstrak ke folder lain dan exe dijalankan: ✅ tray muncul,
   `--version` mencetak `brightfly 0.1.0`.
 
@@ -243,56 +243,61 @@ Perbaikan di `src/ui/render.rs`:
 | Lebar kartu | screenshot | tetap 192×48; track tidak bertabrakan dengan angka ✅ |
 | Unit test | `cargo test` | 29 lulus ✅ |
 
-## Installer dan uninstaller per-user
+## Installer dan uninstaller native (`setup.exe`)
 
-Installer berbentuk PowerShell, bukan MSI/NSIS/Inno Setup, mengikuti pola
-`scripts/package.ps1` yang sudah ada. Tidak butuh admin dan tidak memasang
-service.
+Installer sekarang berupa binary Rust terpisah (`src/bin/setup.rs`, target
+`brightfly-setup`). Saat packaging, `build.rs` menanam `brightfly.exe` dan
+`README.md` ke dalam binary lewat `BRIGHTFLY_PAYLOAD_DIR`, lalu
+`scripts/package.ps1` menyalinnya sebagai `setup.exe`. Tidak ada PowerShell,
+MSI, atau ekstraksi ke folder temp saat instalasi; tetap per-user tanpa admin.
 
-`scripts/install.ps1` (dipanggil `scripts/install.cmd`):
+`setup.exe`:
 
-- Mencari `brightfly.exe` di folder paket, folder script, lalu
-  `..\target\release`; `Find-Payload` mencari README dan uninstaller di
-  lokasi yang sama.
-- Menyalin exe, README, dan uninstaller ke
-  `%LOCALAPPDATA%\Programs\Brightfly`.
-- Membuat shortcut Start Menu.
+- Menyalin payload ke `%LOCALAPPDATA%\Programs\Brightfly`, lalu menyalin
+  dirinya sendiri sebagai `uninstall.exe`.
+- Membuat shortcut Start Menu lewat COM `IShellLinkW` + `IPersistFile`.
 - Mendaftarkan entri `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Brightfly`
   (`DisplayName`, `DisplayVersion`, `DisplayIcon`, `InstallLocation`,
   `UninstallString`, `QuietUninstallString`, `EstimatedSize`, `NoModify=1`,
   `NoRepair=1`) agar muncul di Settings → Apps.
-- Mengaktifkan autostart lewat nilai Run `Brightfly`; `-NoAutostart`
-  menghapusnya. `-NoStart` berguna untuk instalasi senyap.
-- Menghentikan instance lama sebelum menimpa exe.
+- Autostart lewat nilai Run `Brightfly`; `--no-autostart` menghapusnya.
+- Menghentikan instance lama dengan `WM_CLOSE` (fallback `TerminateProcess`)
+  sebelum menimpa file. Penulisan file diulang sampai 3 detik bila exe masih
+  terkunci.
+- Flag: `--no-start`, `--quiet`, `--help`.
 
-`scripts/uninstall.ps1` (dipanggil `scripts/uninstall.cmd`):
+Mode uninstall dipilih dari nama file (`uninstall.exe`) atau flag
+`--uninstall`. Uninstaller menghentikan proses, menghapus Run, entri Apps &
+features, dan shortcut. Config `%APPDATA%\Brightfly` dipertahankan;
+`--purge-config` menghapusnya. Folder instalasi dihapus lewat `cmd /c rmdir`
+terjadwal setelah dialog ditutup, karena exe tidak bisa menghapus dirinya
+sendiri.
 
-- Menghentikan proses, menghapus entri Run, entri Apps & features, dan
-  shortcut Start Menu.
-- Config `%APPDATA%\Brightfly` dipertahankan; `-PurgeConfig` menghapusnya.
-- Kalau dijalankan dari folder instalasi, folder **tidak** dihapus langsung:
-  `cmd.exe` masih membaca file `.cmd` dari folder itu baris per baris. Script
-  menjadwalkan `rmdir` lewat proses `cmd` terpisah setelah pemanggil keluar.
-  Ini menghilangkan pesan `The system cannot find the path specified.` dan
-  exit code 1 yang muncul pada versi pertama.
+Script PowerShell lama (`install.cmd/ps1`, `uninstall.cmd/ps1`) tetap ada untuk
+instalasi dari source checkout, tetapi tidak ikut dalam zip.
 
 | Uji | Metode | Hasil |
 |---|---|---|
-| Install dari zip | ekstrak `dist\brightfly-0.1.0-win64.zip`, jalankan `install.cmd` | exit 0, folder terisi lengkap ✅ |
-| `-NoAutostart` | install ulang dengan flag | nilai Run tidak ada, exit 0 ✅ |
-| Registri | baca Run + Uninstall key | path exe berkutip, metadata lengkap ✅ |
-| Shortcut | cek `Start Menu\Programs\Brightfly.lnk` | ada, target exe instalasi ✅ |
-| Jalankan exe hasil install | `--version`, `probe`, `WM_TOGGLE` | 0.1.0, monitor terbaca, flyout terbuka ✅ |
-| Uninstall dari folder instalasi | jalankan `uninstall.cmd` | exit 0, tanpa pesan path, folder hilang ±2 dtk ✅ |
-| Config dipertahankan | uninstall biasa | `%APPDATA%\Brightfly\config.ini` tetap ada ✅ |
-| `-PurgeConfig` | uninstall dengan flag | folder config terhapus ✅ |
+| Install dari zip | `setup.exe --no-start --quiet` | exit 0; `brightfly.exe`, `README.md`, `uninstall.exe` ✅ |
+| Dialog default | `setup.exe`, tutup dialog | app berjalan, exit 0 ✅ |
+| `--no-autostart` | install dengan flag | nilai Run tidak ada, exit 0 ✅ |
+| `--quiet` | install/uninstall dengan flag | tanpa dialog, exit 0 ✅ |
+| Install ulang saat app berjalan | setup lagi tanpa menutup app | proses lama berhenti, file tertimpa, exit 0 ✅ |
+| Registri | baca Run + Uninstall key | metadata lengkap, path berkutip ✅ |
+| Shortcut | baca `.lnk` lewat WScript.Shell | target dan working dir benar ✅ |
+| Jalankan exe hasil install | `--version`, proses tray | 0.1.0, app berjalan ✅ |
+| Uninstall dari folder instalasi | `uninstall.exe --quiet` | exit 0, folder hilang ±2 dtk ✅ |
+| Config dipertahankan | uninstall biasa | `config.ini` tetap ada ✅ |
+| `--purge-config` | uninstall dengan flag | folder config terhapus ✅ |
+| Uninstall saat belum terpasang | `setup.exe --uninstall --quiet` | exit 0, tanpa error ✅ |
+| Resource setup | `VersionInfo` | `Brightfly Setup`, `setup.exe` ✅ |
 | Sisa state | setelah uninstall | Run, Uninstall key, shortcut, proses, folder bersih ✅ |
 
 Pengukuran ulang setelah semua perubahan (release):
 
 | Uji | Hasil |
 |---|---|
-| Ukuran exe / zip | 310.272 byte / 149.951 byte |
+| Ukuran exe / setup / zip | 310.272 / 606.720 / 421.336 byte |
 | Start sampai tray terdaftar | median 131,0 ms (119,0–214,3) |
 | Buka flyout | median 14,89 ms (11,05–33,85) |
 | CPU idle 60 dtk | 0 ms (0%) |
@@ -413,10 +418,11 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   dicari di Windows SDK; resource hasil kompilasi diteruskan dengan
   `cargo:rustc-link-arg`. Tidak ada dependency build baru dan build tetap jalan
   (dengan warning) di mesin tanpa Windows SDK.
-- **Installer/uninstaller berupa script PowerShell per-user, bukan MSI/NSIS.** NSIS/WiX
-  tidak tersedia di mesin build dan tidak menambah nilai untuk aplikasi per-user tanpa
-  service. Script menangani shortcut, entri Apps & features, autostart, dan pembersihan
-  dengan hak user biasa; paket tetap berupa zip yang bisa langsung diekstrak.
+- **Installer/uninstaller berupa binary Rust native, bukan MSI/NSIS.** NSIS/WiX tidak
+  tersedia di mesin build dan tidak menambah nilai untuk aplikasi per-user tanpa service.
+  Payload ditanam lewat `build.rs`, sedangkan shortcut, registry, autostart, dan
+  pembersihan ditangani langsung dengan Win32/COM. Hasilnya satu `setup.exe` tanpa
+  ekstraksi temp dan tanpa ketergantungan PowerShell.
 - **Enumerasi monitor saat display change/resume berjalan di thread latar.** Probe DDC
   bisa memblokir, jadi hasilnya dikirim lewat `mpsc` dan dipasang lewat
   `WM_RESCAN_DONE`; permintaan beruntun di-coalesce menjadi satu scan ulang. Enumerasi
@@ -478,9 +484,9 @@ radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
   volume Windows), jadi tidak bisa diuji jarak jauh tanpa menjaga posisi kursor.
 - **Installer tidak menandatangani exe.** SmartScreen bisa menampilkan peringatan
   saat file diunduh dari internet; belum ada code signing.
-- **Uninstaller dijalankan dari folder instalasi menunda penghapusan folder
-  ±2 detik** supaya `cmd.exe` selesai membaca file `.cmd`. Ini disengaja, bukan
-  kegagalan.
+- **Uninstaller menunda penghapusan folder ±2 detik** lewat `cmd /c rmdir`,
+  karena exe tidak bisa menghapus dirinya sendiri saat masih berjalan. Ini
+  disengaja, bukan kegagalan.
 
 ## Cara menjalankan
 
