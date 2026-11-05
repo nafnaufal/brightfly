@@ -5,6 +5,7 @@
 #
 # Tidak ada code signing. SmartScreen bisa menampilkan peringatan pada exe
 # yang belum punya reputasi.
+# Lisensi proyek: MIT.
 
 name: Release
 
