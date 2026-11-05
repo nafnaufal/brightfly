@@ -1,94 +1,96 @@
 # Brightfly
 
-Slider brightness untuk monitor eksternal di Windows 11, dengan tampilan
-flyout yang meniru flyout volume Windows. Ditulis dengan Rust + Win32 native
-dan Direct2D, tanpa WebView, tanpa runtime XAML, dan tanpa dependency besar.
+Brightness slider for external monitors on Windows 11, with a flyout that
+mirrors the Windows volume flyout. Written with native Rust + Win32 and
+Direct2D: no WebView, no XAML runtime, no large dependencies.
 
-- Ukuran exe ± 0,31 MB (termasuk icon multi-resolusi)
-- Installer native `setup.exe` ± 0,61 MB, per-user tanpa admin
-- Idle ± 10,6 MB working set, 2 thread, CPU 0%
-- DDC/CI VCP `0x10`; gamma ramp sebagai fallback
-- Satu baris slider per monitor; sinkronisasi opsional
-- Rescan monitor di thread latar saat display berubah atau resume
-- Nilai per monitor dikunci dari EDID, jadi tetap dikenali walau kabel pindah port
-- Nilai brightness dan pengaturan disimpan di `%APPDATA%\Brightfly\config.ini`
-- Autostart per-user lewat `HKCU\...\CurrentVersion\Run`
+- exe size ± 0.31 MB (including the multi-resolution icon)
+- Native `setup.exe` installer ± 0.61 MB, per-user, no admin
+- Idle ± 10.6 MB working set, 2 threads, 0% CPU
+- DDC/CI VCP `0x10`; gamma ramp as fallback
+- One slider row per monitor; optional sync
+- Monitor rescan on a background thread after display changes or resume
+- Per-monitor values are keyed from EDID, so they survive moving the cable to another port
+- Brightness values and settings are stored in `%APPDATA%\Brightfly\config.ini`
+- Per-user autostart through `HKCU\...\CurrentVersion\Run`
 
-Unduhan siap pakai ada di [Releases](https://github.com/nafnaufal/brightfly/releases).
+Ready-to-use downloads are on the [Releases](https://github.com/nafnaufal/brightfly/releases) page.
 
-## Instalasi
+## Installation
 
-Ekstrak `brightfly-<versi>-win64.zip`, lalu jalankan `setup.exe`. Installer
-native per-user ini tidak butuh admin dan menyalin aplikasi ke
-`%LOCALAPPDATA%\Programs\Brightfly`, membuat shortcut Start Menu, mendaftarkan
-entri di Settings → Apps, dan mengaktifkan autostart.
+Extract `brightfly-<version>-win64.zip`, then run `setup.exe`. This native
+per-user installer does not need admin: it copies the app to
+`%LOCALAPPDATA%\Programs\Brightfly`, creates a Start Menu shortcut, registers
+an entry in Settings → Apps, and enables autostart.
 
 ```powershell
-.\setup.exe                  # install + autostart + jalankan
-.\setup.exe --no-autostart   # tanpa autostart
-.\setup.exe --no-start       # tanpa langsung menjalankan
-.\setup.exe --quiet          # tanpa dialog
+.\setup.exe                  # install + autostart + launch
+.\setup.exe --no-autostart   # without autostart
+.\setup.exe --no-start       # without launching immediately
+.\setup.exe --quiet          # no dialogs
 ```
 
-Untuk melepas, jalankan `uninstall.exe` (ada di folder instalasi), atau lewat
-Settings → Apps. Config di `%APPDATA%\Brightfly` dipertahankan; tambahkan
-`--purge-config` kalau ingin menghapusnya juga.
+To remove it, run `uninstall.exe` (in the installation folder) or use
+Settings → Apps. Config in `%APPDATA%\Brightfly` is preserved; add
+`--purge-config` to delete it as well.
 
-`brightfly.exe` tetap bisa dijalankan langsung sebagai versi portable tanpa
-instalasi.
+`brightfly.exe` can still be run directly as a portable build with no
+installation.
 
-## Pemakaian
+## Usage
 
-Jalankan `brightfly.exe`. Icon matahari muncul di area tray.
+Run `brightfly.exe`. A sun icon appears in the tray area.
 
-| Aksi | Hasil |
+| Action | Result |
 |---|---|
-| Klik kiri icon tray | Buka/tutup flyout |
-| Drag thumb atau klik track | Ubah brightness monitor |
-| Panah kiri/kanan, atas/bawah saat flyout fokus | Ubah sesuai `step` |
-| Wheel di atas flyout | Ubah sesuai `step` |
-| `Esc` | Tutup flyout dan simpan nilai |
-| Klik di luar flyout / window lain | Tutup flyout dan simpan nilai |
-| Klik kanan icon tray | Menu sync, autostart, keluar |
+| Left-click the tray icon | Open/close the flyout |
+| Drag the thumb or click the track | Change monitor brightness |
+| Left/right or up/down arrows while the flyout has focus | Adjust by `step` |
+| Mouse wheel over the flyout | Adjust by `step` |
+| `Esc` | Close the flyout and save the value |
+| Click outside the flyout / another window | Close the flyout and save the value |
+| Right-click the tray icon | Sync, autostart, and quit menu |
 
-Menjalankan exe untuk kedua kalinya tidak membuat instance baru; instance yang
-ada akan membuka flyout.
+Launching the exe a second time does not create another instance; the existing
+instance opens its flyout.
 
 ## Command line
 
 ```
-brightfly probe          Tampilkan monitor, metode, range, dan nilai sekarang
-brightfly set <0..100>   Set semua monitor lalu baca ulang untuk verifikasi
-brightfly stress         Kirim 200 perubahan cepat untuk menguji coalescing
+brightfly probe          List monitors, method, range, and current value
+brightfly set <0..100>   Set every monitor, then read back to verify
+brightfly stress         Send 200 rapid changes to exercise coalescing
 brightfly --version
 ```
 
 ## Build
 
-Butuh:
+Requirements:
 
-- Rust stable dengan target MSVC (`rustup default stable-msvc`)
-- Visual Studio Build Tools dengan komponen C++ (untuk `link.exe`)
-- Windows SDK (opsional untuk `rc.exe`: icon + version info). Tanpa itu build
-  tetap jalan dengan warning dan tray memakai icon bawaan Windows.
+- Rust stable with the MSVC target (`rustup default stable-msvc`)
+- Visual Studio Build Tools with the C++ workload (for `link.exe`)
+- Windows SDK (optional, for `rc.exe`: icon + version info). Without it the
+  build still succeeds with a warning and the tray falls back to the stock
+  Windows icon.
 
 ```powershell
 cargo build --release
 .\target\release\brightfly.exe
 ```
 
-Menjalankan langsung dari source:
+Running straight from source:
 
 ```powershell
-cargo run                 # aplikasi tray
-cargo run -- probe        # daftar monitor
+cargo run                 # tray app
+cargo run -- probe        # list monitors
 cargo run -- set 70       # set brightness
 ```
 
-Hentikan instance lama dulu (`Get-Process brightfly | Stop-Process -Force`)
-sebelum `cargo run`; instance kedua hanya akan membuka flyout instance lama.
+Stop any existing instance first (`Get-Process brightfly | Stop-Process -Force`)
+before `cargo run`; a second instance only opens the flyout of the first one.
 
-`cargo test` menjalankan unit test parser config, gamma, dan layout flyout.
+`cargo test` runs the unit tests for the config parser, gamma, and flyout
+layout.
 
 ## Packaging
 
@@ -96,58 +98,59 @@ sebelum `cargo run`; instance kedua hanya akan membuka flyout instance lama.
 .\scripts\package.ps1
 ```
 
-Menghasilkan `dist\brightfly-<versi>-win64.zip` berisi `brightfly.exe`
-(portable), `setup.exe`, dan README. `setup.exe` dibangun dengan payload exe +
-README tertanam, jadi jalankan script ini setiap kali merilis versi baru.
-Instalasi dan uninstall tidak memakai admin; keduanya hanya menulis ke HKCU
-dan folder user.
+Produces `dist\brightfly-<version>-win64.zip` containing `brightfly.exe`
+(portable), `setup.exe`, and the README. `setup.exe` embeds the exe + README
+payload, so run this script for every new release. Installation and
+uninstallation do not use admin; both only write to HKCU and user folders.
 
-## Rilis GitHub
+## GitHub releases
 
-Push tag yang sama dengan versi di `Cargo.toml`:
+Push a tag that matches the version in `Cargo.toml`:
 
 ```powershell
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-Workflow `.github/workflows/release.yml` akan menjalankan test, build, lalu
-membuat GitHub Release berisi:
+The `.github/workflows/release.yml` workflow runs the tests, builds the
+package, and creates a GitHub Release containing:
 
-- `brightfly-<versi>-win64.zip` (zip lengkap)
-- `brightfly-<versi>-setup.exe`
-- `brightfly-<versi>.exe` (portable)
+- `brightfly-<version>-win64.zip` (full zip)
+- `brightfly-<version>-setup.exe`
+- `brightfly-<version>.exe` (portable)
 - `SHA256SUMS.txt`
 
-Untuk build tanpa membuat release (mis. mengecek CI), jalankan workflow lewat
-**Actions → Release → Run workflow**. Hasilnya tersedia sebagai artifact.
+To build without creating a release (for example, to check CI), run the
+workflow through **Actions → Release → Run workflow**. The result is available
+as an artifact.
 
-Tag harus persis `v<versi>`; kalau tidak cocok, workflow gagal sebelum
-release dibuat.
+The tag must be exactly `v<version>`; otherwise the workflow fails before the
+release is created.
 
-Icon dibuat ulang dengan:
+Regenerate the icon with:
 
 ```powershell
 .\scripts\make-icon.ps1
 ```
 
-## Batasan yang diketahui
+## Known limitations
 
-- Scroll di atas icon tray tidak didukung. Windows 11 tidak meneruskan
-  `WM_MOUSEWHEEL` ke callback icon tray pihak ketiga; mewujudkannya butuh
-  raw input/hook global yang menambah beban idle.
-- Monitor yang tidak mendukung DDC/CI tetap tampil, tetapi slider dinonaktifkan
-  bila gamma ramp juga tidak tersedia.
-- Brightness melalui DDC/CI bergantung pada firmware monitor. Sebagian monitor
-  lambat merespons atau menolak VCP `0x10`.
-- HDR, sleep/resume fisik, unplug/replug, dan multi-monitor nyata belum diuji
-  menyeluruh; mesin pengembangan hanya memiliki satu monitor eksternal.
-- Kunci per monitor diambil dari nomor seri EDID. Monitor yang tidak
-  mencantumkan serial hanya dikenali sampai tingkat model, sehingga dua unit
-  identik akan berbagi nilai.
-- Build rilis tidak ditandatangani secara digital. SmartScreen bisa
-  menampilkan peringatan; cocokkan hash file dengan `SHA256SUMS.txt`.
+- Scrolling over the tray icon is not supported. Windows 11 does not forward
+  `WM_MOUSEWHEEL` to third-party tray icon callbacks; implementing it would
+  require raw input or a global hook that adds idle overhead.
+- Monitors without DDC/CI support still appear, but their slider is disabled
+  when no gamma ramp is available either.
+- Brightness over DDC/CI depends on monitor firmware. Some monitors respond
+  slowly or reject VCP `0x10`.
+- HDR, physical sleep/resume, unplug/replug, and real multi-monitor setups have
+  not been tested thoroughly; the development machine has only one external
+  monitor.
+- Per-monitor keys come from the EDID serial number. Monitors that do not
+  report a serial are only identified at the model level, so two identical
+  units share the same value.
+- Release builds are not code-signed. SmartScreen may warn; verify file hashes
+  against `SHA256SUMS.txt`.
 
-## Lisensi
+## License
 
-MIT. Lihat [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

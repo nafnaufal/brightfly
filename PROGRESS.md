@@ -1,105 +1,105 @@
 # Progress
 
-Diperbarui: pasca-fase 5 (rescan thread latar, ikon PNG, perbaikan klik tray,
-identitas monitor dari EDID, tutup otomatis saat klik di luar flyout, perbaikan
-angka "100", serta installer/uninstaller per-user).
+Updated: post-phase 5 (background-thread rescan, PNG icon, tray click fix,
+monitor identity from EDID, auto-close on outside click of the flyout, fix for
+the "100" number, and per-user installer/uninstaller).
 
 ## Status
 
-| Fase | Isi | Status |
+| Phase | Scope | Status |
 |---|---|---|
-| 0 | Probe DDC/CI (gate) | ✅ lulus |
-| 1 | Core library | ✅ selesai |
-| 2 | Shell: tray + flyout | ✅ selesai |
-| 3 | Visual match flyout volume | ✅ selesai |
-| 4 | Fitur (multi-monitor, sync, persist, autostart) | ✅ selesai* |
-| 5 | Robustness + packaging | ✅ selesai* |
+| 0 | DDC/CI probe (gate) | ✅ passed |
+| 1 | Core library | ✅ done |
+| 2 | Shell: tray + flyout | ✅ done |
+| 3 | Visual match to volume flyout | ✅ done |
+| 4 | Features (multi-monitor, sync, persist, autostart) | ✅ done* |
+| 5 | Robustness + packaging | ✅ done* |
 
-\* Butir yang tidak bisa diuji di mesin ini didokumentasikan di bagian
-"Penyimpangan dari plan" dan "Utang teknis".
+\* Items that could not be tested on this machine are documented in
+"Deviations from the plan" and "Known technical debt".
 
-## Fase 5 — hasil uji
+## Phase 5 — test results
 
-Ikon dan version info:
+Icon and version info:
 
-- `scripts/make-icon.ps1` menghasilkan `assets/brightfly.ico` (48.496 byte) dengan
-  8 ukuran (16/20/24/32/40/48/64/256). Ukuran 16–64 disimpan sebagai DIB 32-bit;
-  frame 256 disimpan sebagai PNG (5.474 byte). Frame PNG diverifikasi dengan
-  mengekstraknya langsung dari ICO, karena `System.Drawing.Icon.ToBitmap()`
-  tidak mendukung frame PNG.
-- `build.rs` mencari `rc.exe` (env `RC`, Windows SDK, lalu PATH) dan
-  mengompilasi resource dengan icon ID `1` + `VERSIONINFO`. Kalau `rc.exe`
-  tidak ada, build tetap jalan dengan warning dan tray memakai icon bawaan.
-- `Tray` memuat icon lewat `LoadImageW` pada ukuran `SM_CXSMICON`; fallback
-  `IDI_APPLICATION`. Icon hasil resource terlihat benar di taskbar.
-- File properties exe: `FileDescription=Brightfly`, `FileVersion=0.1.0`,
+- `scripts/make-icon.ps1` produces `assets/brightfly.ico` (48.496 byte) with
+  8 sizes (16/20/24/32/40/48/64/256). Sizes 16–64 are stored as 32-bit DIB;
+  the 256 frame is stored as PNG (5.474 byte). The PNG frame is verified by
+  extracting it directly from the ICO, because `System.Drawing.Icon.ToBitmap()`
+  does not support PNG frames.
+- `build.rs` looks for `rc.exe` (env `RC`, Windows SDK, then PATH) and
+  compiles the resources with icon ID `1` + `VERSIONINFO`. If `rc.exe` is
+  missing, the build still runs with a warning and the tray uses the built-in icon.
+- `Tray` loads the icon via `LoadImageW` at `SM_CXSMICON` size; fallback is
+  `IDI_APPLICATION`. The resource icon renders correctly in the taskbar.
+- Exe file properties: `FileDescription=Brightfly`, `FileVersion=0.1.0`,
   `ProductVersion=0.1.0`.
 
 Packaging:
 
-- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (421.336 byte),
-  berisi `brightfly.exe` (310.272 byte), `setup.exe` (606.720 byte), dan
-  `README.md`. `setup.exe` membawa exe + README di dalam dirinya.
-- Zip diekstrak ke folder lain dan exe dijalankan: ✅ tray muncul,
-  `--version` mencetak `brightfly 0.1.0`.
+- `scripts/package.ps1` → `dist/brightfly-0.1.0-win64.zip` (422.648 byte),
+  containing `brightfly.exe` (310.272 byte), `setup.exe` (608.256 byte), and
+  `README.md` (5.428 byte). `setup.exe` carries the exe + README inside itself.
+- Zip extracted to another folder and the exe run: ✅ tray appears,
+  `--version` prints `brightfly 0.1.0`.
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Ukuran exe | `target\release\brightfly.exe` | 310.272 byte (0,31 MB; target ≤3 MB) ✅ |
-| Start sampai tray terdaftar | 5× start, poll `Shell_NotifyIconGetRect` | median 121–130 ms (120–177; target ≤300 ms) ✅ |
-| Waktu buka flyout | `WM_TOGGLE` + `UpdateWindow`, 10× | median 17,7 ms (12,3–37,4; target ≤60 ms) ✅ |
-| Handler `WM_DISPLAYCHANGE` | `SendMessageW` saat flyout terbuka | 0,90 ms (enumerasi pindah ke thread latar) ✅ |
-| Handler resume | `WM_POWERBROADCAST` + `PBT_APMRESUMEAUTOMATIC` | 1,36 ms ✅ |
-| CPU idle | 60 detik, `TotalProcessorTime`, flyout dipastikan tertutup | 0 ms (target 0%) ✅ |
-| Working set idle | 60 detik setelah start | 10,6 MB WS, 1,6 MB private, 2 thread ✅ |
-| Working set flyout terbuka | 700 ms setelah show | 22,8 MB WS, 5,1 MB private, 9 thread (WS target ≤25 MB) ✅ |
-| CPU drag | 150 gerakan, 2,5 detik | <15,6 ms CPU (di bawah granularitas) ✅ |
-| Drag cepat / coalescing | `brightfly stress` | 200 perubahan dalam 305 ms, selisih akhir 0 poin ✅ |
-| Build tanpa `rc.exe` | jalur fallback di `build.rs` | belum diuji langsung; fallback memakai icon bawaan Windows |
-| Monitor lambat / macet | — | tidak bisa diuji (hanya satu monitor, tidak ada monitor bermasalah) |
-| Sleep/resume nyata | — | tidak bisa diuji di sesi ini; pesan resume disimulasikan di Fase 4 |
-| Monitor dimatikan saat aplikasi jalan | — | tidak bisa diuji (tidak ada monitor cadangan) |
-| HDR on/off | — | tidak bisa diuji (monitor uji tanpa HDR) |
-| Unplug/replug fisik | — | tidak bisa diuji (satu monitor, dipakai untuk sesi ini) |
-| Resolusi berubah nyata | — | tidak bisa diuji tanpa mengubah display aktif; `WM_DISPLAYCHANGE` disimulasikan di Fase 4 |
+| Exe size | `target\release\brightfly.exe` | 310.272 byte (0.31 MB; target ≤3 MB) ✅ |
+| Start until tray registered | 5× start, poll `Shell_NotifyIconGetRect` | median 121–130 ms (120–177; target ≤300 ms) ✅ |
+| Flyout open time | `WM_TOGGLE` + `UpdateWindow`, 10× | median 17.7 ms (12.3–37.4; target ≤60 ms) ✅ |
+| `WM_DISPLAYCHANGE` handler | `SendMessageW` with the flyout open | 0.90 ms (enumeration moved to the background thread) ✅ |
+| Resume handler | `WM_POWERBROADCAST` + `PBT_APMRESUMEAUTOMATIC` | 1.36 ms ✅ |
+| Idle CPU | 60 seconds, `TotalProcessorTime`, flyout confirmed closed | 0 ms (target 0%) ✅ |
+| Idle working set | 60 seconds after start | 10.6 MB WS, 1.6 MB private, 2 threads ✅ |
+| Flyout-open working set | 700 ms after show | 22.8 MB WS, 5.1 MB private, 9 threads (WS target ≤25 MB) ✅ |
+| Drag CPU | 150 movements, 2.5 seconds | <15.6 ms CPU (below granularity) ✅ |
+| Fast drag / coalescing | `brightfly stress` | 200 changes in 305 ms, final delta 0 points ✅ |
+| Build without `rc.exe` | fallback path in `build.rs` | not tested directly; the fallback uses the built-in Windows icon |
+| Slow / stalled monitor | — | cannot be tested (only one monitor, no faulty monitor) |
+| Real sleep/resume | — | cannot be tested in this session; the resume message is simulated in Phase 4 |
+| Monitor powered off while the app runs | — | cannot be tested (no spare monitor) |
+| HDR on/off | — | cannot be tested (test monitor has no HDR) |
+| Physical unplug/replug | — | cannot be tested (one monitor, in use for this session) |
+| Real resolution change | — | cannot be tested without changing the active display; `WM_DISPLAYCHANGE` is simulated in Phase 4 |
 
-Catatan pengukuran: start dihitung dari `Start-Process` sampai
-`Shell_NotifyIconGetRect` berhasil, jadi termasuk pembuatan proses. Jumlah
-thread berfluktuasi tergantung waktu sampel (thread helper DDC/WARP bisa
-sudah berhenti); angka idle 2 dan flyout 8 adalah sampel 60 detik/700 ms.
+Measurement note: start is measured from `Start-Process` until
+`Shell_NotifyIconGetRect` succeeds, so it includes process creation. The thread
+count fluctuates with sample timing (DDC/WARP helper threads may
+already have exited); the idle figure of 2 and the flyout figure of 8 are 60-second/700 ms samples.
 
-## Pasca-fase 5 — rescan di thread latar
+## Post-phase 5 — rescan on the background thread
 
-Sebelumnya `WM_DISPLAYCHANGE` dan resume memanggil `ddc::enumerate()` langsung
-di UI thread: monitor yang lambat bisa membekukan UI beberapa detik. Sekarang:
+Previously `WM_DISPLAYCHANGE` and resume called `ddc::enumerate()` directly
+on the UI thread: a slow monitor could freeze the UI for seconds. Now:
 
-- `Supervisor::apply_scan()` hanya memasang hasil enumerasi; tidak ada I/O.
-- Controller memakai `mpsc` + thread `brightfly-scan`; thread mengirim
-  `Vec<RawMonitor>` lalu `WM_RESCAN_DONE` ke window controller.
-- Permintaan yang datang saat scan berjalan hanya menandai `rescan_pending`;
-  hasil pertama diterapkan, lalu scan diulang sekali dengan keadaan terbaru.
-- Resume tetap memanggil `refresh_all()` setelah scan terakhir.
-- Nilai baris dipertahankan dengan prioritas: nilai yang sedang tampil →
-  config → bacaan hardware. Tiga unit test baru mengunci urutan ini.
-- Enumerasi awal saat start sengaja tetap sinkron, supaya klik tray pertama
-  tidak menampilkan flyout kosong. Tray sudah terdaftar sebelum enumerasi
-  dimulai, jadi icon tetap muncul lebih dulu.
+- `Supervisor::apply_scan()` only installs the enumeration result; there is no I/O.
+- The controller uses `mpsc` + a `brightfly-scan` thread; the thread sends
+  `Vec<RawMonitor>` and then `WM_RESCAN_DONE` to the controller window.
+- A request that arrives while a scan runs only sets `rescan_pending`;
+  the first result is applied, then the scan repeats once with the latest state.
+- Resume still calls `refresh_all()` after the last scan.
+- Row values are preserved by priority: currently displayed value →
+  config → hardware reading. Three new unit tests lock this order.
+- The initial enumeration at start remains synchronous on purpose, so the first tray
+  click does not show an empty flyout. The tray is registered before enumeration
+  starts, so the icon still appears first.
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Handler display change | `SendMessageW(WM_DISPLAYCHANGE)` saat flyout terbuka | 0,90 ms; flyout langsung tertutup ✅ |
-| Buka setelah scan | tunggu 700 ms, buka flyout, klik 50% | visible, monitor 50% ✅ |
-| Dua display change beruntun | kirim dua pesan berjarak 80 ms, tunggu 900 ms, klik 60% | scan diulang, monitor 60% ✅ |
-| Resume | kirim `PBT_APMRESUMEAUTOMATIC`, buka, klik 30% | visible, monitor 30%, config ikut ✅ |
-| Unit test | `cargo test` | 16 lulus (3 test prioritas nilai baru) ✅ |
-| Monitor benar-benar lambat | — | tidak bisa diuji; tidak ada monitor yang menggantung |
+| Display change handler | `SendMessageW(WM_DISPLAYCHANGE)` with the flyout open | 0.90 ms; flyout closes immediately ✅ |
+| Open after scan | wait 700 ms, open the flyout, click 50% | visible, monitor 50% ✅ |
+| Two display changes in a row | send two messages 80 ms apart, wait 900 ms, click 60% | scan repeats, monitor 60% ✅ |
+| Resume | send `PBT_APMRESUMEAUTOMATIC`, open, click 30% | visible, monitor 30%, config follows ✅ |
+| Unit test | `cargo test` | 16 pass (3 new value-priority tests) ✅ |
+| Truly slow monitor | — | cannot be tested; no monitor hangs |
 
-## Perbaikan — klik tray tidak membuka flyout
+## Fix — tray click does not open the flyout
 
-Gejala: satu klik kiri pada icon tray tidak menampilkan flyout sama sekali.
+Symptom: a single left click on the tray icon does not show the flyout at all.
 
-Penyebab ditemukan lewat log sementara di wndproc tray: dengan
-`NOTIFYICON_VERSION_4`, satu klik kiri menghasilkan **tiga** pesan berurutan:
+Cause found via temporary logging in the tray wndproc: with
+`NOTIFYICON_VERSION_4`, one left click produces **three** messages in sequence:
 
 ```
 event=0x0201 (WM_LBUTTONDOWN)
@@ -107,236 +107,236 @@ event=0x0202 (WM_LBUTTONUP)
 event=0x0400 (NIN_SELECT)
 ```
 
-Handler lama memproses ketiganya sebagai `toggle()`, sehingga flyout
-buka → tutup → buka/tutup lagi dan akhirnya tertahan oleh guard
-`hidden_recently` di flyout. Klik kanan punya masalah serupa:
-`WM_RBUTTONUP` lalu `WM_CONTEXTMENU`.
+The old handler processed all three as `toggle()`, so the flyout went
+open → close → open/close again and was finally held shut by the
+`hidden_recently` guard in the flyout. Right click had a similar problem:
+`WM_RBUTTONUP` then `WM_CONTEXTMENU`.
 
-Perbaikan:
+Fix:
 
-- `WM_TRAY` hanya menangani `NIN_SELECT` dan `NIN_KEYSELECT` → `toggle()`.
-- `WM_CONTEXTMENU` saja yang membuka menu.
-- Konstanta `NIN_KEYSELECT` didefinisikan lokal (`NIN_SELECT + 1`) karena crate
-  `windows` 0.62 tidak mengekspornya. Tanpa konstanta itu, pola match menjadi
-  binding variabel baru dan memicu `E0408`.
-- Log debug sementara dihapus.
+- `WM_TRAY` handles only `NIN_SELECT` and `NIN_KEYSELECT` → `toggle()`.
+- Only `WM_CONTEXTMENU` opens the menu.
+- The `NIN_KEYSELECT` constant is defined locally (`NIN_SELECT + 1`) because the
+  `windows` 0.62 crate does not export it. Without that constant, the match pattern becomes
+  a new variable binding and triggers `E0408`.
+- Temporary debug logging removed.
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Klik kiri 1 | klik fisik via `mouse_event` pada icon tray | flyout terbuka, 192×48 ✅ |
-| Klik kiri 2 | klik fisik lagi | flyout tertutup ✅ |
-| Klik kiri 3 | klik fisik lagi | flyout terbuka ✅ |
-| Klik kanan | klik fisik kanan | menu muncul (`#32768`), flyout tetap tertutup ✅ |
-| Escape | `keybd_event(VK_ESCAPE)` | menu tertutup ✅ |
-| Build release | ulangi seluruh urutan di atas pada exe release | hasil sama ✅ |
-| Unit test | `cargo test` | 16 lulus ✅ |
+| Left click 1 | physical click via `mouse_event` on the tray icon | flyout opens, 192×48 ✅ |
+| Left click 2 | physical click again | flyout closes ✅ |
+| Left click 3 | physical click again | flyout opens ✅ |
+| Right click | physical right click | menu appears (`#32768`), flyout stays closed ✅ |
+| Escape | `keybd_event(VK_ESCAPE)` | menu closes ✅ |
+| Release build | repeat the entire sequence above on the release exe | same result ✅ |
+| Unit test | `cargo test` | 16 pass ✅ |
 
-## Identitas monitor dari EDID
+## Monitor identity from EDID
 
-Sebelumnya kunci config adalah device interface path
-(`\\?\DISPLAY#MSI30B9#7&21ebfe3c&0&UID24646#{...}`). Bagian instance di dalam
-path dibuat Windows per koneksi, jadi kabel yang pindah port membuat nilai
-tersimpan tidak ditemukan dan monitor kembali ke bacaan hardware.
+Previously the config key was the device interface path
+(`\\?\DISPLAY#MSI30B9#7&21ebfe3c&0&UID24646#{...}`). The instance part of the
+path is created by Windows per connection, so a cable moved to another port makes the
+stored value unfindable and the monitor falls back to the hardware reading.
 
-Bukti di mesin uji: registry punya **dua** entri untuk monitor yang sama —
+Evidence on the test machine: the registry has **two** entries for the same monitor —
 
 ```
 MSI30B9\7&21ebfe3c&0&UID24646   EDID serial 'PB9H304C03601'
 MSI30B9\7&b7543e2&1&UID4165    EDID serial 'PB9H304C03601'
 ```
 
-Perubahan:
+Changes:
 
-- Modul baru `src/monitor/edid.rs` membaca blob EDID dari
+- New module `src/monitor/edid.rs` reads the EDID blob from
   `HKLM\SYSTEM\CurrentControlSet\Enum\<class>\<hardware id>\<instance>\Device Parameters`
-  (path diturunkan dari device interface path), lalu mengambil kode pabrikan,
-  kode produk, dan nomor seri.
-- Nomor seri diprioritaskan dari descriptor 0x0F (teks), lalu angka di header
-  EDID. Karakter yang merusak nama section INI (`[`, `]`, `#`) diganti `_`.
-- Kunci config menjadi `MSI30B9:PB9H304C03601`. Kalau EDID tidak terbaca,
-  device path tetap dipakai sebagai fallback (perilaku lama).
-- `MonitorInfo` menyimpan `path` terpisah dari `id`, khusus untuk migrasi.
-- Migrasi config lama berjalan saat start: nilai dari section lama dipindahkan
-  ke kunci EDID hanya kalau tidak ambigu — satu section lama dan satu monitor
-  aktif dengan kode model yang sama. Selain itu dibiarkan, supaya dua unit
-  identik tidak saling menimpa nilai.
-- Dua monitor dengan EDID identik (model sama, tanpa nomor seri) mendapat
-  akhiran `#2`, `#3` agar tetap punya baris sendiri.
+  (path derived from the device interface path), then extracts the manufacturer code,
+  product code, and serial number.
+- The serial number is taken preferentially from descriptor 0x0F (text), then the number in the
+  EDID header. Characters that break the INI section name (`[`, `]`, `#`) are replaced with `_`.
+- The config key becomes `MSI30B9:PB9H304C03601`. If the EDID cannot be read,
+  the device path is still used as fallback (old behavior).
+- `MonitorInfo` stores `path` separately from `id`, specifically for migration.
+- Migration of the old config runs at start: a value from an old section is moved
+  to the EDID key only when it is unambiguous — one old section and one active
+  monitor with the same model code. Otherwise it is left alone, so two
+  identical units do not overwrite each other's values.
+- Two monitors with identical EDID (same model, no serial number) get the
+  suffix `#2`, `#3` so they still have their own row.
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Baca EDID nyata | `read()` + `parse()` pada registry mesin uji | `MSI30B9`, serial `PB9H304C03601` ✅ |
+| Read real EDID | `read()` + `parse()` on the test machine registry | `MSI30B9`, serial `PB9H304C03601` ✅ |
 | `probe` | `brightfly probe` | `id: MSI30B9:PB9H304C03601` ✅ |
-| Migrasi dari port yang sekarang | config lama `UID24646`, brightness 55 | `[MSI30B9:PB9H304C03601] brightness=55` ✅ |
-| Migrasi dari port lain | config `UID4165` brightness 42, monitor di `UID24646` | monitor jadi 42%, config ditulis ulang ke kunci EDID ✅ |
-| Slider menulis kunci baru | buka flyout, klik 66% | `brightness=66` di section EDID ✅ |
-| Klik tray (regresi) | klik kiri 1/2/3 + klik kanan | buka/tutup/buka, menu muncul ✅ |
-| Unit test | `cargo test` | 29 lulus (8 EDID + 5 migrasi baru) ✅ |
-| Start setelah tambah pembacaan registry | 5× start | median 121 ms (+4 ms) ✅ |
+| Migration from the current port | old config `UID24646`, brightness 55 | `[MSI30B9:PB9H304C03601] brightness=55` ✅ |
+| Migration from another port | config `UID4165` brightness 42, monitor on `UID24646` | monitor becomes 42%, config rewritten to the EDID key ✅ |
+| Slider writes the new key | open the flyout, click 66% | `brightness=66` in the EDID section ✅ |
+| Tray click (regression) | left click 1/2/3 + right click | open/close/open, menu appears ✅ |
+| Unit test | `cargo test` | 29 pass (8 EDID + 5 new migration) ✅ |
+| Start after adding registry reads | 5× start | median 121 ms (+4 ms) ✅ |
 
-## Menutup flyout saat klik di luar
+## Closing the flyout on outside click
 
-Permintaan: flyout harus tertutup otomatis saat user mengklik window lain atau
-area di luar kotak.
+Request: the flyout must close automatically when the user clicks another window or
+an area outside the box.
 
-Diagnosis: handler `WM_ACTIVATE(WA_INACTIVE)` dan `WM_KILLFOCUS` sudah ada,
-tetapi keduanya **tidak pernah terpicu** saat window lain diklik. Log sementara
-di wndproc flyout mencatat urutan ini saat flyout tampil —
+Diagnosis: the `WM_ACTIVATE(WA_INACTIVE)` and `WM_KILLFOCUS` handlers already exist,
+but neither **ever fires** when another window is clicked. Temporary logging
+in the flyout wndproc recorded this sequence while the flyout is shown —
 
 ```
 WM_ACTIVATEAPP(1)  WM_NCACTIVATE  WM_ACTIVATE(1)  WM_SETFOCUS
 ```
 
-— lalu tidak ada pesan apa pun ketika desktop diklik. `WM_KILLFOCUS` hanya
-datang saat flyout sendiri disembunyikan. Penyebabnya: `force_foreground()`
-memaksa window menjadi foreground lewat `AttachThreadInput`, sehingga state
-aktivasinya tidak normal.
+— and then no message at all when the desktop is clicked. `WM_KILLFOCUS` only
+arrives when the flyout itself is hidden. The cause: `force_foreground()`
+forces the window to the foreground via `AttachThreadInput`, so its activation
+state is not normal.
 
-Perbaikan:
+Fix:
 
-- `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` dipasang **hanya selama flyout
-  tampil** dan dilepas di `hide_now()` serta `WM_DESTROY`. Tidak ada polling
-  dan tidak ada hook mouse/keyboard, jadi idle tetap 0% CPU.
-- Callback hook tidak menutup window langsung; ia hanya `PostMessage`
-  `WM_OUTSIDE_FOREGROUND` (`WM_APP + 6`) ke window flyout.
-- Handler memeriksa `IsWindowVisible`, `ACTIVATION_GRACE` (200 ms), dan
-  memastikan foreground bukan flyout itu sendiri.
-- `WINEVENT_SKIPOWNPROCESS` mencegah event dari proses sendiri (mis. saat
-  flyout memaksa dirinya foreground) ikut menutup flyout.
-- `WM_KILLFOCUS` dipertahankan sebagai jaring pengaman.
-- Tambahan yang ditemukan saat uji: setelah flyout pernah ditutup oleh klik
-  luar, `force_foreground()` tidak memberi fokus keyboard, sehingga Escape mati.
-  `SetFocus(hwnd)` sekarang dipanggil setelah `SetForegroundWindow`.
+- `SetWinEventHook(EVENT_SYSTEM_FOREGROUND)` is installed **only while the flyout
+  is shown** and removed in `hide_now()` and `WM_DESTROY`. There is no polling
+  and no mouse/keyboard hook, so idle CPU stays at 0%.
+- The hook callback does not close the window directly; it only `PostMessage`s
+  `WM_OUTSIDE_FOREGROUND` (`WM_APP + 6`) to the flyout window.
+- The handler checks `IsWindowVisible`, `ACTIVATION_GRACE` (200 ms), and
+  confirms the foreground window is not the flyout itself.
+- `WINEVENT_SKIPOWNPROCESS` prevents events from the own process (e.g. when
+  the flyout forces itself to the foreground) from also closing the flyout.
+- `WM_KILLFOCUS` is kept as a safety net.
+- Additional finding from testing: once the flyout has been closed by an outside
+  click, `force_foreground()` does not give it keyboard focus, so Escape stops working.
+  `SetFocus(hwnd)` is now called after `SetForegroundWindow`.
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Klik desktop | buka flyout, klik (300,300) | tertutup < 250 ms ✅ |
-| Klik tombol Start | buka flyout, klik Start | tertutup ✅ |
-| Alt+Tab | buka flyout, Alt+Tab | tertutup ✅ |
-| Drag slider | drag 20 langkah di track | tetap terbuka, brightness berubah ✅ |
-| Escape | buka → tutup lewat klik luar → buka → Escape | tertutup ✅ |
-| Klik tray 1/2/3 | klik kiri berurutan | buka/tutup/buka ✅ |
-| Klik kanan | klik kanan icon tray | menu muncul, flyout tetap tertutup ✅ |
-| Build release | seluruh urutan di atas pada exe release | sama ✅ |
-| Idle setelah hook | 60 detik | 0 ms CPU, 10,6 MB WS, 2 thread ✅ |
-| Unit test | `cargo test` | 29 lulus ✅ |
-| Clippy | `cargo clippy --all-targets` | 7 warning, semuanya pre-existing ✅ |
+| Desktop click | open the flyout, click (300.300) | closes in < 250 ms ✅ |
+| Start button click | open the flyout, click Start | closes ✅ |
+| Alt+Tab | open the flyout, Alt+Tab | closes ✅ |
+| Slider drag | drag 20 steps on the track | stays open, brightness changes ✅ |
+| Escape | open → close via outside click → open → Escape | closes ✅ |
+| Tray click 1/2/3 | consecutive left clicks | open/close/open ✅ |
+| Right click | right click on the tray icon | menu appears, flyout stays closed ✅ |
+| Release build | entire sequence above on the release exe | same ✅ |
+| Idle after the hook | 60 seconds | 0 ms CPU, 10.6 MB WS, 2 threads ✅ |
+| Unit test | `cargo test` | 29 pass ✅ |
+| Clippy | `cargo clippy --all-targets` | 7 warnings, all pre-existing ✅ |
 
-## Perbaikan — angka "100" terpotong
+## Fix — "100" number truncated
 
-Gejala: pada brightness 100, digit terakhir turun ke baris kedua sehingga
-kartu menampilkan "10" di atas dan "0" di bawah.
+Symptom: at brightness 100, the last digit drops to a second line, so the
+card shows "10" on top and "0" below.
 
-Penyebab: kolom angka hanya disisakan 20 DIP, cukup untuk dua digit pada font
-15 px. Format teks juga membiarkan DirectWrite memecah baris.
+Cause: only 20 DIP was reserved for the number column, enough for two digits at
+15 px font. The text format also let DirectWrite break the line.
 
-Perbaikan di `src/ui/render.rs`:
+Fix in `src/ui/render.rs`:
 
-- `NUMBER_WIDTH_DIP` 20 → 28 DIP (cukup untuk tiga digit, termasuk padding).
-- `SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)` pada format angka, supaya
-  angka tidak pernah pecah baris lagi.
+- `NUMBER_WIDTH_DIP` 20 → 28 DIP (enough for three digits, including padding).
+- `SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)` on the number format, so
+  numbers never wrap again.
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Nilai 100 | screenshot flyout 192×48 pada DPI 100% | "100" satu baris, rata kanan ✅ |
-| Nilai 5 | screenshot flyout | "5" tetap satu baris, posisi benar ✅ |
-| Lebar kartu | screenshot | tetap 192×48; track tidak bertabrakan dengan angka ✅ |
-| Unit test | `cargo test` | 29 lulus ✅ |
+| Value 100 | flyout screenshot 192×48 at DPI 100% | "100" on one line, right-aligned ✅ |
+| Value 5 | flyout screenshot | "5" still on one line, correct position ✅ |
+| Card width | screenshot | still 192×48; track does not collide with the number ✅ |
+| Unit test | `cargo test` | 29 pass ✅ |
 
-## Installer dan uninstaller native (`setup.exe`)
+## Native installer and uninstaller (`setup.exe`)
 
-Installer sekarang berupa binary Rust terpisah (`src/bin/setup.rs`, target
-`brightfly-setup`). Saat packaging, `build.rs` menanam `brightfly.exe` dan
-`README.md` ke dalam binary lewat `BRIGHTFLY_PAYLOAD_DIR`, lalu
-`scripts/package.ps1` menyalinnya sebagai `setup.exe`. Tidak ada PowerShell,
-MSI, atau ekstraksi ke folder temp saat instalasi; tetap per-user tanpa admin.
+The installer is now a separate Rust binary (`src/bin/setup.rs`, target
+`brightfly-setup`). During packaging, `build.rs` embeds `brightfly.exe` and
+`README.md` into the binary via `BRIGHTFLY_PAYLOAD_DIR`, then
+`scripts/package.ps1` copies it as `setup.exe`. There is no PowerShell,
+MSI, or extraction to a temp folder during installation; it stays per-user without admin.
 
 `setup.exe`:
 
-- Menyalin payload ke `%LOCALAPPDATA%\Programs\Brightfly`, lalu menyalin
-  dirinya sendiri sebagai `uninstall.exe`.
-- Membuat shortcut Start Menu lewat COM `IShellLinkW` + `IPersistFile`.
-- Mendaftarkan entri `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Brightfly`
+- Copies the payload to `%LOCALAPPDATA%\Programs\Brightfly`, then copies
+  itself as `uninstall.exe`.
+- Creates the Start Menu shortcut via COM `IShellLinkW` + `IPersistFile`.
+- Registers the entry `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Brightfly`
   (`DisplayName`, `DisplayVersion`, `DisplayIcon`, `InstallLocation`,
   `UninstallString`, `QuietUninstallString`, `EstimatedSize`, `NoModify=1`,
-  `NoRepair=1`) agar muncul di Settings → Apps.
-- Autostart lewat nilai Run `Brightfly`; `--no-autostart` menghapusnya.
-- Menghentikan instance lama dengan `WM_CLOSE` (fallback `TerminateProcess`)
-  sebelum menimpa file. Penulisan file diulang sampai 3 detik bila exe masih
-  terkunci.
-- Flag: `--no-start`, `--quiet`, `--help`.
+  `NoRepair=1`) so it appears in Settings → Apps.
+- Autostart via the Run value `Brightfly`; `--no-autostart` removes it.
+- Stops the old instance with `WM_CLOSE` (fallback `TerminateProcess`)
+  before overwriting files. File writes are retried for up to 3 seconds if the exe is still
+  locked.
+- Flags: `--no-start`, `--quiet`, `--help`.
 
-Mode uninstall dipilih dari nama file (`uninstall.exe`) atau flag
-`--uninstall`. Uninstaller menghentikan proses, menghapus Run, entri Apps &
-features, dan shortcut. Config `%APPDATA%\Brightfly` dipertahankan;
-`--purge-config` menghapusnya. Folder instalasi dihapus lewat `cmd /c rmdir`
-terjadwal setelah dialog ditutup, karena exe tidak bisa menghapus dirinya
-sendiri.
+Uninstall mode is selected from the file name (`uninstall.exe`) or the flag
+`--uninstall`. The uninstaller stops the process, removes the Run value, the Apps &
+features entry, and the shortcut. The config in `%APPDATA%\Brightfly` is kept;
+`--purge-config` removes it. The install folder is removed via a scheduled
+`cmd /c rmdir` after the dialog closes, because the exe cannot delete
+itself.
 
-Script PowerShell lama (`install.cmd/ps1`, `uninstall.cmd/ps1`) tetap ada untuk
-instalasi dari source checkout, tetapi tidak ikut dalam zip.
+The old PowerShell scripts (`install.cmd/ps1`, `uninstall.cmd/ps1`) still exist for
+installation from a source checkout, but are not included in the zip.
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Install dari zip | `setup.exe --no-start --quiet` | exit 0; `brightfly.exe`, `README.md`, `uninstall.exe` ✅ |
-| Dialog default | `setup.exe`, tutup dialog | app berjalan, exit 0 ✅ |
-| `--no-autostart` | install dengan flag | nilai Run tidak ada, exit 0 ✅ |
-| `--quiet` | install/uninstall dengan flag | tanpa dialog, exit 0 ✅ |
-| Install ulang saat app berjalan | setup lagi tanpa menutup app | proses lama berhenti, file tertimpa, exit 0 ✅ |
-| Registri | baca Run + Uninstall key | metadata lengkap, path berkutip ✅ |
-| Shortcut | baca `.lnk` lewat WScript.Shell | target dan working dir benar ✅ |
-| Jalankan exe hasil install | `--version`, proses tray | 0.1.0, app berjalan ✅ |
-| Uninstall dari folder instalasi | `uninstall.exe --quiet` | exit 0, folder hilang ±2 dtk ✅ |
-| Config dipertahankan | uninstall biasa | `config.ini` tetap ada ✅ |
-| `--purge-config` | uninstall dengan flag | folder config terhapus ✅ |
-| Uninstall saat belum terpasang | `setup.exe --uninstall --quiet` | exit 0, tanpa error ✅ |
-| Resource setup | `VersionInfo` | `Brightfly Setup`, `setup.exe` ✅ |
-| Sisa state | setelah uninstall | Run, Uninstall key, shortcut, proses, folder bersih ✅ |
+| Install from zip | `setup.exe --no-start --quiet` | exit 0; `brightfly.exe`, `README.md`, `uninstall.exe` ✅ |
+| Default dialog | `setup.exe`, close the dialog | app runs, exit 0 ✅ |
+| `--no-autostart` | install with the flag | Run value absent, exit 0 ✅ |
+| `--quiet` | install/uninstall with the flag | no dialog, exit 0 ✅ |
+| Reinstall while the app runs | run setup again without closing the app | old process stops, files overwritten, exit 0 ✅ |
+| Registry | read the Run + Uninstall keys | metadata complete, paths quoted ✅ |
+| Shortcut | read the `.lnk` via WScript.Shell | target and working dir correct ✅ |
+| Run the installed exe | `--version`, tray process | 0.1.0, app runs ✅ |
+| Uninstall from the install folder | `uninstall.exe --quiet` | exit 0, folder gone in ±2 s ✅ |
+| Config preserved | normal uninstall | `config.ini` still present ✅ |
+| `--purge-config` | uninstall with the flag | config folder removed ✅ |
+| Uninstall when not installed | `setup.exe --uninstall --quiet` | exit 0, no error ✅ |
+| Setup resources | `VersionInfo` | `Brightfly Setup`, `setup.exe` ✅ |
+| Leftover state | after uninstall | Run, Uninstall key, shortcut, process, folder clean ✅ |
 
-Pengukuran ulang setelah semua perubahan (release):
+Re-measurement after all changes (release):
 
-| Uji | Hasil |
+| Test | Result |
 |---|---|
-| Ukuran exe / setup / zip | 310.272 / 606.720 / 421.336 byte |
-| Start sampai tray terdaftar | median 131,0 ms (119,0–214,3) |
-| Buka flyout | median 14,89 ms (11,05–33,85) |
-| CPU idle 60 dtk | 0 ms (0%) |
-| Working set idle | 10,6 MB WS, 1,6 MB private, 2 thread |
-| Working set flyout terbuka | 22,8 MB WS, 5,0 MB private, 8 thread |
-| CPU drag 150 gerakan | 0 ms (di bawah granularitas) |
-| `brightfly stress` | 200 perubahan dalam 309 ms, selisih akhir 0 poin |
-| Clippy | 7 warning bin / 8 warning test, semuanya pre-existing |
+| Exe / setup / zip size | 310.272 / 608.256 / 422.648 byte |
+| Start until tray registered | median 131.0 ms (119.0–214.3) |
+| Flyout open | median 14.89 ms (11.05–33.85) |
+| Idle CPU 60 s | 0 ms (0%) |
+| Idle working set | 10.6 MB WS, 1.6 MB private, 2 threads |
+| Flyout-open working set | 22.8 MB WS, 5.0 MB private, 8 threads |
+| Drag CPU 150 movements | 0 ms (below granularity) |
+| `brightfly stress` | 200 changes in 309 ms, final delta 0 points |
+| Clippy | 7 bin warnings / 8 test warnings, all pre-existing |
 
-## Rilis GitHub (CI)
+## GitHub release (CI)
 
-Workflow `.github/workflows/release.yml` membangun paket di `windows-latest`
-dan menerbitkan GitHub Release. Tidak ada code signing.
+The workflow `.github/workflows/release.yml` builds the package on `windows-latest`
+and publishes a GitHub Release. There is no code signing.
 
-- Trigger: push tag `v*` (mis. `v0.1.0`) atau `workflow_dispatch`.
-- Langkah: `cargo test` → `scripts/package.ps1` → siapkan aset → upload
-  artifact → buat release.
-- Aset release: zip lengkap, `setup.exe`, exe portable, dan `SHA256SUMS.txt`.
-- Tag harus sama dengan versi `Cargo.toml`; workflow gagal sebelum release
-  kalau tidak cocok.
-- `workflow_dispatch` hanya menghasilkan artifact, tanpa release.
-- Run pertama: `v0.1.0` (run `41979730507`) sukses dalam 1m55s dan menerbitkan
-  <https://github.com/nafnaufal/brightfly/releases/tag/v0.1.0>. Aset dari CI:
+- Trigger: push tag `v*` (e.g. `v0.1.0`) or `workflow_dispatch`.
+- Steps: `cargo test` → `scripts/package.ps1` → prepare assets → upload
+  artifact → create release.
+- Release assets: full zip, `setup.exe`, portable exe, and `SHA256SUMS.txt`.
+- The tag must match the `Cargo.toml` version; the workflow fails before the release
+  if they do not match.
+- `workflow_dispatch` only produces artifacts, no release.
+- First run: `v0.1.0` (run `41979730507`) succeeded in 1m55s and published
+  <https://github.com/nafnaufal/brightfly/releases/tag/v0.1.0>. Assets from CI:
   `setup.exe` 607.232 B, zip 432.443 B, exe 309.760 B, `SHA256SUMS.txt` 273 B.
-  Ukuran berbeda sedikit dari build lokal karena toolchain runner berbeda.
-- Workflow memakai `actions/checkout@v7`, `actions/upload-artifact@v7`,
-  `softprops/action-gh-release@v3`, dan `Swatinem/rust-cache@v2.9.3` agar
-  tidak terkena peringatan deprecation Node 20.
+  Sizes differ slightly from the local build because the runner toolchain differs.
+- The workflow uses `actions/checkout@v7`, `actions/upload-artifact@v7`,
+  `softprops/action-gh-release@v3`, and `Swatinem/rust-cache@v2.9.3` so it
+  stays clear of Node 20 deprecation warnings.
 
-Cara merilis:
+How to release:
 
 ```powershell
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-## Hasil gate (fase 0)
+## Gate results (phase 0)
 
-Hardware uji: 1 monitor eksternal MSI.
+Test hardware: 1 external MSI monitor.
 
 ```
 name     : Generic PnP Monitor
@@ -347,193 +347,193 @@ range    : 0..100
 current  : 50%
 ```
 
-- DDC/CI berfungsi penuh: baca dan tulis.
-- Range 0..100 (bukan 0..255).
-- Tulis 70% → dibaca balik 70%. Tulis 50% → dibaca balik 50%.
-- Config tersimpan di `%APPDATA%\Brightfly\config.ini` dan terbaca ulang dengan benar.
+- DDC/CI works fully: read and write.
+- Range 0..100 (not 0..255).
+- Write 70% → read back 70%. Write 50% → read back 50%.
+- Config is stored in `%APPDATA%\Brightfly\config.ini` and read back correctly.
 
-## Fase 4 — hasil uji
+## Phase 4 — test results
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Nama dari EDID | `probe` | ✅ `MSI MP223 E2` (sebelumnya `Generic PnP Monitor`) |
-| Startup menerapkan config | config 50%, monitor sedang 80% | ✅ monitor jadi 50% setelah aplikasi start |
-| Persist saat slider bergerak | klik 30%, tunggu debounce 1,2 dtk | ✅ `brightness=30` di config |
-| Persist saat flyout ditutup | set 80%, `Esc` 100 ms kemudian, cek 250 ms | ✅ `brightness=80` (flush langsung, tanpa menunggu debounce) |
-| Persist setelah restart | restart proses | ✅ `probe` membaca nilai terakhir dari config |
-| Autostart | menu → "Mulai bersama Windows" | ✅ nilai Run `Brightfly` berisi path exe berkutip |
-| Autostart nonaktif | toggle item yang sama | ✅ nilai Run dihapus, config ikut 0 |
-| Menu sync | toggle item pertama | ✅ config `sync` berubah 1↔0 |
-| Langkah dari config | `step=5`, panah kanan | ✅ 80% → 85% |
-| `WM_DISPLAYCHANGE` | kirim pesan saat flyout terbuka | ✅ flyout tertutup, rescan, slider tetap bekerja |
-| Resume | `WM_POWERBROADCAST` + `PBT_APMRESUMEAUTOMATIC` | ✅ flyout tertutup, rescan + refresh, slider tetap bekerja |
-| Dua baris + nama | render dua baris (monitor nyata + baris uji sementara) | ✅ kartu 192×128, nama 12 px di atas tiap slider |
-| Single instance | jalankan exe kedua | ✅ flyout instance lama terbuka |
-| Memori & thread (release) | idle / flyout terbuka | 10,5 MB WS, 5 thread / 22,6 MB WS, 9 thread (private 5,0 MB) |
+| Name from EDID | `probe` | ✅ `MSI MP223 E2` (previously `Generic PnP Monitor`) |
+| Startup applies config | config 50%, monitor at 80% | ✅ monitor becomes 50% after the app starts |
+| Persist while the slider moves | click 30%, wait for the 1.2 s debounce | ✅ `brightness=30` in config |
+| Persist when the flyout closes | set 80%, `Esc` 100 ms later, check after 250 ms | ✅ `brightness=80` (immediate flush, no debounce wait) |
+| Persist after restart | restart the process | ✅ `probe` reads the last value from config |
+| Autostart | menu → "Start with Windows" | ✅ Run value `Brightfly` contains the quoted exe path |
+| Autostart off | toggle the same item | ✅ Run value removed, config follows at 0 |
+| Sync menu | toggle the first item | ✅ `sync` config changes 1↔0 |
+| Step from config | `step=5`, right arrow | ✅ 80% → 85% |
+| `WM_DISPLAYCHANGE` | send the message with the flyout open | ✅ flyout closes, rescan, slider still works |
+| Resume | `WM_POWERBROADCAST` + `PBT_APMRESUMEAUTOMATIC` | ✅ flyout closes, rescan + refresh, slider still works |
+| Two rows + names | render two rows (real monitor + temporary test row) | ✅ card 192×128, 12 px name above each slider |
+| Single instance | run a second exe | ✅ the old instance's flyout opens |
+| Memory & threads (release) | idle / flyout open | 10.5 MB WS, 5 threads / 22.6 MB WS, 9 threads (private 5.0 MB) |
 
-Catatan: mesin uji hanya punya satu monitor fisik, jadi sinkronisasi dua monitor
-nyata dan unplug/replug fisik belum diuji; pesan display-change dan resume
-disimulasikan langsung ke controller. Baris ganda diverifikasi dengan
-menambahkan satu baris uji sementara saat pengambilan screenshot, lalu kode uji
-itu dihapus.
+Note: the test machine has only one physical monitor, so two-monitor
+synchronization and physical unplug/replug are untested; display-change and resume
+messages were simulated directly against the controller. The double row was verified by
+adding one temporary test row while taking screenshots, then that test code
+was removed.
 
-## Fase 3 — hasil uji
+## Phase 3 — test results
 
-Target visual: flyout volume Windows 11, diukur pada DPI 100% (kartu 192×48 px,
-radius 8, ikon 16 px, track 4 px dari x=42 ke x=150, angka 15 px rata kanan).
+Visual target: Windows 11 volume flyout, measured at DPI 100% (card 192×48 px,
+radius 8, icon 16 px, track 4 px from x=42 to x=150, number 15 px right-aligned).
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Geometri & warna | bandingkan piksel dengan screenshot volume asli | ✅ selisih ≤1 px / 1 level warna |
-| Track kosong | token `ControlStrongFillColorDefault` (putih 54%) | ✅ `#9F9F9F` sama dengan asli |
-| Track terisi | `AccentPalette` index 1 (gelap) / 4 (terang) | ✅ `#BDBAE7` |
-| Thumb | hanya saat hover/drag | ✅ |
-| Buka–tutup 5× | screenshot tiap siklus | ✅ isi selalu tergambar |
-| Klik track | kirim `WM_LBUTTONDOWN` di 25% dan 80% | ✅ monitor ikut 25% / 80% |
-| Drag | `WM_MOUSEMOVE` saat tombol ditahan | ✅ |
+| Geometry & color | compare pixels against the real volume screenshot | ✅ difference ≤1 px / 1 color level |
+| Empty track | `ControlStrongFillColorDefault` token (54% white) | ✅ `#9F9F9F` matches the original |
+| Filled track | `AccentPalette` index 1 (dark) / 4 (light) | ✅ `#BDBAE7` |
+| Thumb | only on hover/drag | ✅ |
+| Open–close 5× | screenshot each cycle | ✅ fill always drawn |
+| Track click | send `WM_LBUTTONDOWN` at 25% and 80% | ✅ monitor follows 25% / 80% |
+| Drag | `WM_MOUSEMOVE` with the button held | ✅ |
 | Wheel | `WM_MOUSEWHEEL` | ✅ 82% → 84% → 82% |
-| Panah kiri/kanan | `WM_KEYDOWN` | ✅ ±2% |
-| `Esc` menutup | `WM_KEYDOWN` VK_ESCAPE | ✅ |
-| Tema terang | `AppsUseLightTheme=1` | ✅ kartu `#F4F4F4`, aksen biru |
-| Working set (release) | idle / flyout terbuka | 10.4 MB / 22.6 MB (private 5.1 MB) |
-| Thread | idle / flyout terbuka | 5 / 7 |
+| Left/right arrow | `WM_KEYDOWN` | ✅ ±2% |
+| `Esc` closes | `WM_KEYDOWN` VK_ESCAPE | ✅ |
+| Light theme | `AppsUseLightTheme=1` | ✅ card `#F4F4F4`, blue accent |
+| Working set (release) | idle / flyout open | 10.4 MB / 22.6 MB (private 5.1 MB) |
+| Threads | idle / flyout open | 5 / 7 |
 
-## Fase 2 — hasil uji
+## Phase 2 — test results
 
-| Uji | Metode | Hasil |
+| Test | Method | Result |
 |---|---|---|
-| Icon tray muncul | proses berjalan | ✅ |
-| Klik tray membuka flyout | instance kedua memicu `WM_TOGGLE` | ✅ visible=true |
-| Klik tray menutup flyout | idem | ✅ visible=false |
-| `Esc` menutup | `SendKeys {ESC}` | ✅ |
-| Klik di luar menutup | flyout kehilangan fokus | ✅ |
-| Tidak muncul di Alt+Tab | `WS_EX_TOOLWINDOW` (exstyle 0x88) | ✅ |
-| Single instance | instance kedua langsung keluar | ✅ |
-| Posisi | di atas tray, di-clamp ke work area | ✅ |
+| Tray icon appears | process running | ✅ |
+| Tray click opens the flyout | second instance triggers `WM_TOGGLE` | ✅ visible=true |
+| Tray click closes the flyout | same | ✅ visible=false |
+| `Esc` closes | `SendKeys {ESC}` | ✅ |
+| Outside click closes | flyout loses focus | ✅ |
+| Not shown in Alt+Tab | `WS_EX_TOOLWINDOW` (exstyle 0x88) | ✅ |
+| Single instance | second instance exits immediately | ✅ |
+| Position | above the tray, clamped to the work area | ✅ |
 | Working set | Task Manager | 15.4 MB (debug) |
-| Thread | — | 4 |
+| Threads | — | 4 |
 
-## Keputusan teknis yang diambil
+## Technical decisions made
 
-- **Tanpa channel, pakai slot `desired` + Condvar.** Lebih sederhana daripada `mpsc`
-  untuk coalescing, dan tidak mungkin menumpuk.
-- **Acquire/destroy physical monitor handle per operasi.** Handle lama tidak disimpan,
-  jadi unplug/replug tidak meninggalkan handle basi.
-- **Join handle tidak di-join saat shutdown.** Proses harus tetap bisa keluar walau ada
-  panggilan DDC yang menggantung.
-- **State controller disimpan di `GWLP_USERDATA`, bukan `thread_local`.** Wndproc bisa
-  dipanggil reentran selama `SetWindowPos`; `thread_local` + `RefCell` akan panic.
-- **`force_foreground()` pakai `AttachThreadInput`.** `SetForegroundWindow` polos ditolak
-  Windows kalau proses bukan penerima input terakhir, akibatnya `Esc` tidak sampai ke flyout.
-- **`GetDeviceGammaRamp` ada di `Win32::UI::ColorSystem`**, bukan `Win32::Graphics::Gdi`.
-- **Sync memperbarui baris flyout secara lokal.** `supervisor.monitors()` masih berisi nilai
-  lama sampai worker DDC selesai, jadi `Flyout::set_all_pct()` dipanggil langsung agar semua
-  baris bergerak bersamaan tanpa menunggu hardware.
-- **Config disimpan dengan debounce 500 ms** (`SetTimer`), lalu di-flush saat flyout ditutup
-  dan saat `WM_DESTROY`. Menulis file tiap perubahan slider akan membuat I/O berlebihan.
-- **Registry adalah sumber kebenaran autostart saat start.** Nilai `start_with_windows` di
-  config tidak dipakai untuk menulis registry otomatis; menu hanya membaca/menulis registry
-  ketika pengguna memilihnya.
-- **Nilai terakhir juga disimpan di `Supervisor`.** Saat monitor hilang lalu muncul lagi,
-  fallback-nya adalah nilai terakhir yang diketahui, bukan default 50%.
-- **Nama monitor diambil dari `DISPLAYCONFIG_TARGET_DEVICE_NAME`.** `EnumDisplayDevices`
-  hanya memberi "Generic PnP Monitor"; sumber GDI dihubungkan ke target lewat
+- **No channel, use a `desired` slot + Condvar.** Simpler than `mpsc`
+  for coalescing, and cannot pile up.
+- **Acquire/destroy the physical monitor handle per operation.** Old handles are not kept,
+  so unplug/replug leaves no stale handle.
+- **Join handles are not joined on shutdown.** The process must still be able to exit even with
+  a hanging DDC call.
+- **Controller state is stored in `GWLP_USERDATA`, not `thread_local`.** Wndproc can be
+  called reentrantly during `SetWindowPos`; `thread_local` + `RefCell` would panic.
+- **`force_foreground()` uses `AttachThreadInput`.** A plain `SetForegroundWindow` is rejected
+  by Windows when the process is not the last input recipient, so `Esc` never reaches the flyout.
+- **`GetDeviceGammaRamp` lives in `Win32::UI::ColorSystem`**, not `Win32::Graphics::Gdi`.
+- **Sync updates the flyout rows locally.** `supervisor.monitors()` still holds the old
+  values until the DDC worker finishes, so `Flyout::set_all_pct()` is called directly so all
+  rows move together without waiting for hardware.
+- **Config is saved with a 500 ms debounce** (`SetTimer`), then flushed when the flyout closes
+  and on `WM_DESTROY`. Writing the file on every slider change would cause excessive I/O.
+- **The registry is the source of truth for autostart at start.** The `start_with_windows` value
+  in config is not used to write the registry automatically; the menu only reads/writes the registry
+  when the user selects it.
+- **The last value is also stored in `Supervisor`.** When a monitor disappears and reappears,
+  the fallback is the last known value, not the 50% default.
+- **The monitor name comes from `DISPLAYCONFIG_TARGET_DEVICE_NAME`.** `EnumDisplayDevices`
+  only gives "Generic PnP Monitor"; the GDI source is linked to the target via
   `DISPLAYCONFIG_SOURCE_DEVICE_NAME`.
-- **Label nama hanya muncul saat baris > 1.** Tinggi tiap baris bertambah 16 DIP untuk pita
-  nama, sesuai PLAN bagian 3.1; flyout satu monitor tetap 192×48 seperti flyout volume.
-- **Icon dan version info ditanam lewat `build.rs`, bukan crate tambahan.** `rc.exe`
-  dicari di Windows SDK; resource hasil kompilasi diteruskan dengan
-  `cargo:rustc-link-arg`. Tidak ada dependency build baru dan build tetap jalan
-  (dengan warning) di mesin tanpa Windows SDK.
-- **Installer/uninstaller berupa binary Rust native, bukan MSI/NSIS.** NSIS/WiX tidak
-  tersedia di mesin build dan tidak menambah nilai untuk aplikasi per-user tanpa service.
-  Payload ditanam lewat `build.rs`, sedangkan shortcut, registry, autostart, dan
-  pembersihan ditangani langsung dengan Win32/COM. Hasilnya satu `setup.exe` tanpa
-  ekstraksi temp dan tanpa ketergantungan PowerShell.
-- **Enumerasi monitor saat display change/resume berjalan di thread latar.** Probe DDC
-  bisa memblokir, jadi hasilnya dikirim lewat `mpsc` dan dipasang lewat
-  `WM_RESCAN_DONE`; permintaan beruntun di-coalesce menjadi satu scan ulang. Enumerasi
-  awal saat start tetap sinkron supaya flyout pertama tidak kosong.
-- **Frame 256 ikon disimpan sebagai PNG di dalam ICO.** Windows mendukungnya dan
-  ukurannya turun dari 270.376 ke 5.474 byte; frame kecil tetap DIB agar kompatibel
-  dengan shell lama.
+- **Name labels appear only when there is more than 1 row.** Each row grows by 16 DIP for the
+  name strip, per PLAN section 3.1; the single-monitor flyout stays 192×48 like the volume flyout.
+- **Icon and version info are embedded via `build.rs`, not an extra crate.** `rc.exe`
+  is looked up in the Windows SDK; the compiled resource is passed with
+  `cargo:rustc-link-arg`. There is no new build dependency and the build still works
+  (with a warning) on machines without the Windows SDK.
+- **The installer/uninstaller is a native Rust binary, not MSI/NSIS.** NSIS/WiX is not
+  available on the build machine and adds no value for a per-user app without a service.
+  The payload is embedded via `build.rs`, while the shortcut, registry, autostart, and
+  cleanup are handled directly with Win32/COM. The result is a single `setup.exe` with no
+  temp extraction and no PowerShell dependency.
+- **Monitor enumeration on display change/resume runs on a background thread.** A DDC probe
+  can block, so results are sent over `mpsc` and installed via
+  `WM_RESCAN_DONE`; consecutive requests are coalesced into one rescan. The initial
+  enumeration at start stays synchronous so the first flyout is not empty.
+- **The 256 icon frame is stored as PNG inside the ICO.** Windows supports it and
+  the size drops from 270.376 to 5.474 byte; small frames stay DIB for compatibility
+  with older shells.
 
-## Penyimpangan dari plan
+## Deviations from the plan
 
-- **Renderer Fase 3 tidak memakai DirectComposition/D3D/acrylic.** Rencana awal
-  memakai swapchain alpha + backdrop acrylic. Kenyataannya visual DirectComposition
-  lepas setiap `ShowWindow(SW_HIDE)` → `SW_SHOW`, sehingga flyout yang dibuka lagi
-  tampil kosong; membuat ulang device/target tiap show hanya menutupi sebagian dan
-  interaksi tetap tidak andal. Backend diganti ke **`ID2D1DCRenderTarget`**: gambar
-  langsung ke HDC di `WM_PAINT`, kartu opaque, sudut membulat lewat `SetWindowRgn`.
-  Konsekuensi yang diterima: tidak ada blur backdrop dan tepi sudut tidak
-  anti-alias (radius 8 px). Keuntungan: tidak ada state komposisi yang bisa lepas,
-  dan memori jauh lebih kecil.
-- **`D2D1_RENDER_TARGET_TYPE_SOFTWARE` dipaksa.** Dengan tipe `DEFAULT`, Direct2D
-  memuat driver D3D11 GPU (private memory 35 MB) hanya untuk kartu 192×48.
-  Software membuat private memory turun ke 5 MB tanpa perubahan visual.
-- **Fase 2 dulu memakai GDI placeholder**; renderer baru masuk di Fase 3.
-- **Scroll di atas icon tray tidak diimplementasikan (keputusan produk).** Windows 11 tidak
-  meneruskan `WM_MOUSEWHEEL` ke callback tray icon pihak ketiga: diuji dengan
-  `NOTIFYICON_VERSION_4` maupun versi 3, taskbar tetap mengonsumsi wheel. Untuk
-  mewujudkannya perlu `RegisterRawInputDevices` + `RIDEV_INPUTSINK` atau
-  `WH_MOUSE_LL`, yang membuat UI thread terus dibangunkan oleh gerakan mouse dan
-  bertentangan dengan target "sangat ringan". Diputuskan dilewati; scroll tetap
-  berfungsi saat kursor berada di atas flyout.
-- **Budget thread ≤6 terlampaui saat flyout terbuka (8 thread).** Idle hanya 2 thread,
-  tetapi membuat `ID2D1DCRenderTarget` memuat WARP/D2D helper thread. Menghapusnya berarti
-  kembali ke GDI dan kehilangan antialiasing teks/ bentuk. Working set tetap 22,7 MB
-  (target ≤25 MB) dan CPU idle 0%, jadi penyimpangan ini diterima dan dicatat.
+- **The Phase 3 renderer does not use DirectComposition/D3D/acrylic.** The initial plan
+  used an alpha swapchain + acrylic backdrop. In practice the DirectComposition visual
+  is lost on every `ShowWindow(SW_HIDE)` → `SW_SHOW`, so a reopened flyout
+  renders empty; recreating the device/target on each show only masks part of it and
+  interaction stays unreliable. The backend was switched to **`ID2D1DCRenderTarget`**: draw
+  directly to the HDC in `WM_PAINT`, opaque card, rounded corners via `SetWindowRgn`.
+  Accepted consequences: no backdrop blur and the corner edges are not
+  anti-aliased (radius 8 px). Benefits: no composition state that can be lost,
+  and much lower memory.
+- **`D2D1_RENDER_TARGET_TYPE_SOFTWARE` is forced.** With the `DEFAULT` type, Direct2D
+  loads the GPU D3D11 driver (35 MB private memory) just for a 192×48 card.
+  Software brings private memory down to 5 MB with no visual change.
+- **Phase 2 first used a GDI placeholder**; the new renderer arrived in Phase 3.
+- **Scroll over the tray icon is not implemented (product decision).** Windows 11 does not
+  forward `WM_MOUSEWHEEL` to third-party tray icon callbacks: tested with
+  `NOTIFYICON_VERSION_4` and version 3, the taskbar still consumes the wheel. To
+  make it work would need `RegisterRawInputDevices` + `RIDEV_INPUTSINK` or
+  `WH_MOUSE_LL`, which keeps the UI thread waking on mouse movement and
+  conflicts with the "very light" target. Decided to skip it; scroll still
+  works while the cursor is over the flyout.
+- **The ≤6 thread budget is exceeded when the flyout is open (8 threads).** Idle is only 2 threads,
+  but creating `ID2D1DCRenderTarget` loads WARP/D2D helper threads. Removing them means
+  going back to GDI and losing text/shape antialiasing. Working set stays at 22.7 MB
+  (target ≤25 MB) and idle CPU is 0%, so this deviation is accepted and recorded.
 
-## Utang teknis yang diketahui
+## Known technical debt
 
-- **Scroll di atas icon tray tidak diimplementasikan** (keputusan produk); lihat
-  penyimpangan di atas.
-- **Enumerasi awal saat start masih berjalan di UI thread** sebelum message loop;
-  ini disengaja agar flyout pertama tidak kosong. Display change dan resume sudah
-  memakai thread latar. Monitor yang benar-benar menggantung saat scan belum bisa
-  diuji di mesin ini.
-- **Sinkronisasi dua monitor nyata dan unplug/replug fisik belum diuji** karena mesin uji
-  hanya punya satu monitor.
-- **Nama monitor panjang dipotong di kartu 192 px** (satu baris, tanpa tooltip).
-- **Monitor tanpa nomor seri di EDID hanya dikenali sampai tingkat model.** Dua unit
-  identik akan berbagi nilai; kalau tidak ada serial sama sekali, nilai bisa bertukar
-  saat urutan enumerasi berubah. Monitor uji punya serial, jadi kasus ini belum diuji.
-- **Migrasi config lama melewati monitor yang ambigu.** Kalau ada dua section lama
-  dengan model sama, nilai tidak dipindahkan (lebih baik kehilangan nilai daripada
-  salah tempel).
-- **`method` di config belum dipakai untuk memaksa metode.** Probe selalu menentukan
-  DDC vs gamma; config hanya menyimpan hasilnya.
-- **`step` hanya bisa diubah lewat file config**, belum ada kontrol di UI.
-- Posisi flyout bergantung `Shell_NotifyIconGetRect`; kalau icon masuk overflow area,
-  hasilnya kurang presisi dan belum diuji.
-- Wheel hanya aktif saat kursor berada di atas flyout (perilaku sama dengan flyout
-  volume Windows), jadi tidak bisa diuji jarak jauh tanpa menjaga posisi kursor.
-- **Installer tidak menandatangani exe.** SmartScreen bisa menampilkan peringatan
-  saat file diunduh dari internet; belum ada code signing.
-- **Uninstaller menunda penghapusan folder ±2 detik** lewat `cmd /c rmdir`,
-  karena exe tidak bisa menghapus dirinya sendiri saat masih berjalan. Ini
-  disengaja, bukan kegagalan.
+- **Scroll over the tray icon is not implemented** (product decision); see
+  the deviation above.
+- **The initial enumeration at start still runs on the UI thread** before the message loop;
+  this is intentional so the first flyout is not empty. Display change and resume already
+  use a background thread. A monitor that truly hangs during a scan cannot yet be
+  tested on this machine.
+- **Two-monitor synchronization and physical unplug/replug are untested** because the test
+  machine has only one monitor.
+- **Long monitor names are truncated in the 192 px card** (one line, no tooltip).
+- **A monitor without a serial number in EDID is only identified at model level.** Two
+  identical units share values; with no serial at all, values can swap
+  when enumeration order changes. The test monitor has a serial, so this case is untested.
+- **Old config migration skips ambiguous monitors.** If there are two old sections
+  with the same model, the value is not moved (better to lose a value than
+  attach it to the wrong monitor).
+- **`method` in config is not yet used to force a method.** Probe always determines
+  DDC vs gamma; config only stores the result.
+- **`step` can only be changed via the config file**; there is no UI control yet.
+- Flyout position depends on `Shell_NotifyIconGetRect`; if the icon is in the overflow area,
+  the result is less precise and untested.
+- Wheel is only active while the cursor is over the flyout (same behavior as the Windows
+  volume flyout), so it cannot be tested remotely without holding the cursor position.
+- **The installer does not sign the exe.** SmartScreen may show a warning
+  when the file is downloaded from the internet; there is no code signing yet.
+- **The uninstaller delays folder removal by ±2 seconds** via `cmd /c rmdir`,
+  because the exe cannot delete itself while running. This is
+  intentional, not a failure.
 
-## Cara menjalankan
+## How to run
 
 ```
-cargo run                # aplikasi tray
-cargo run -- probe       # daftar monitor
+cargo run                # tray app
+cargo run -- probe       # list monitors
 cargo run -- set 70      # set brightness
-cargo run -- stress      # uji coalescing
+cargo run -- stress      # exercise coalescing
 ```
 
-Build dan paket rilis:
+Build and package the release:
 
 ```powershell
 cargo build --release
 .\scripts\package.ps1
 ```
 
-## Langkah berikutnya
+## Next steps
 
-Fase 0–5, hardening pasca-fase 5, dan installer/uninstaller selesai. Pekerjaan
-lanjutan yang masuk akal: pengujian di mesin multi-monitor, HDR, monitor yang
-lambat/menggantung, serta code signing. Uji pindah port fisik sudah bisa
-dilakukan kapan saja: config harus tetap memakai section EDID yang sama.
+Phases 0–5, post-phase 5 hardening, and the installer/uninstaller are done. Reasonable
+follow-up work: testing on multi-monitor machines, HDR, slow/hanging
+monitors, and code signing. The physical port-move test can already be
+performed at any time: config must still use the same EDID section.
