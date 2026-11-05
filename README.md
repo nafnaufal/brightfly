@@ -37,6 +37,37 @@ Settings → Apps. Config in `%APPDATA%\Brightfly` is preserved; add
 `brightfly.exe` can still be run directly as a portable build with no
 installation.
 
+### SmartScreen
+
+Release builds are unsigned, so Windows may show **"Windows protected your
+PC"** the first time `setup.exe` is run. That is expected for a new unsigned
+project, not a corrupted download.
+
+Allow it once:
+
+1. Click **More info**.
+2. Click **Run anyway**.
+
+Or remove the "downloaded from the internet" mark first, which skips the
+prompt entirely:
+
+```powershell
+Unblock-File .\setup.exe
+.\setup.exe
+```
+
+The same can be done in Explorer: right-click the file → **Properties** →
+tick **Unblock** → **OK**.
+
+Verify the download before running it:
+
+```powershell
+certutil -hashfile setup.exe SHA256
+```
+
+Compare the output with the matching line in `SHA256SUMS.txt` from the same
+release.
+
 ## Usage
 
 Run `brightfly.exe`. A sun icon appears in the tray area.

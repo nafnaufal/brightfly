@@ -509,8 +509,11 @@ radius 8, icon 16 px, track 4 px from x=42 to x=150, number 15 px right-aligned)
   the result is less precise and untested.
 - Wheel is only active while the cursor is over the flyout (same behavior as the Windows
   volume flyout), so it cannot be tested remotely without holding the cursor position.
-- **The installer does not sign the exe.** SmartScreen may show a warning
-  when the file is downloaded from the internet; there is no code signing yet.
+- **The installer does not sign the exe.** SmartScreen shows "Windows protected
+  your PC" when the file is downloaded from the internet; there is no code
+  signing yet. Workarounds documented in the README: *More info → Run anyway*,
+  or `Unblock-File` before running. Reputation only improves with downloads or
+  a paid OV/EV certificate.
 - **The uninstaller delays folder removal by ±2 seconds** via `cmd /c rmdir`,
   because the exe cannot delete itself while running. This is
   intentional, not a failure.
