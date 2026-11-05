@@ -149,7 +149,7 @@ impl Controller {
         }
         match self.config.save() {
             Ok(()) => self.config_dirty = false,
-            Err(error) => eprintln!("Gagal menyimpan config: {error}"),
+            Err(error) => eprintln!("Failed to save config: {error}"),
         }
     }
 
@@ -163,16 +163,16 @@ impl Controller {
                 menu,
                 menu_flags(self.config.sync),
                 MENU_SYNC,
-                w!("Sinkronkan semua monitor"),
+                w!("Sync all monitors"),
             );
             let _ = AppendMenuW(
                 menu,
                 menu_flags(self.config.start_with_windows),
                 MENU_AUTOSTART,
-                w!("Mulai bersama Windows"),
+                w!("Start with Windows"),
             );
             let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-            let _ = AppendMenuW(menu, MF_STRING, MENU_QUIT, w!("Keluar"));
+            let _ = AppendMenuW(menu, MF_STRING, MENU_QUIT, w!("Quit"));
 
             let mut point = POINT::default();
             let _ = GetCursorPos(&mut point);
@@ -213,7 +213,7 @@ impl Controller {
             self.mark_dirty();
             self.flush_config();
         } else {
-            eprintln!("Gagal mengubah entri autostart.");
+            eprintln!("Failed to update the autostart entry.");
         }
     }
 
@@ -262,7 +262,7 @@ impl Controller {
 
         if spawned.is_err() {
             self.rescanning = false;
-            eprintln!("Gagal memulai scan monitor.");
+            eprintln!("Failed to start the monitor scan.");
         }
     }
 
@@ -365,17 +365,17 @@ pub fn run() -> ExitCode {
     }
 
     let Ok(module) = (unsafe { GetModuleHandleW(None) }) else {
-        eprintln!("Gagal mengambil module handle.");
+        eprintln!("Failed to get the module handle.");
         return ExitCode::FAILURE;
     };
     let instance = HINSTANCE(module.0);
 
     if !flyout::register_class(instance) {
-        eprintln!("Gagal mendaftarkan window class flyout.");
+        eprintln!("Failed to register the flyout window class.");
         return ExitCode::FAILURE;
     }
     if !register_controller_class(instance) {
-        eprintln!("Gagal mendaftarkan window class controller.");
+        eprintln!("Failed to register the controller window class.");
         return ExitCode::FAILURE;
     }
 
@@ -395,12 +395,12 @@ pub fn run() -> ExitCode {
             None,
         )
     }) else {
-        eprintln!("Gagal membuat window controller.");
+        eprintln!("Failed to create the controller window.");
         return ExitCode::FAILURE;
     };
 
     let Some(flyout_window) = Flyout::create(instance, hwnd) else {
-        eprintln!("Gagal membuat window flyout.");
+        eprintln!("Failed to create the flyout window.");
         return ExitCode::FAILURE;
     };
 
@@ -410,7 +410,7 @@ pub fn run() -> ExitCode {
         WM_TRAY,
         "Brightfly — brightness monitor",
     ) else {
-        eprintln!("Gagal memasang icon tray.");
+        eprintln!("Failed to add the tray icon.");
         return ExitCode::FAILURE;
     };
 
@@ -422,7 +422,7 @@ pub fn run() -> ExitCode {
     if adopt_legacy_config(&mut config, &supervisor.monitors())
         && let Err(error) = config.save()
     {
-        eprintln!("Gagal menyimpan config hasil migrasi: {error}");
+        eprintln!("Failed to save the migrated config: {error}");
     }
 
     let saved: BTreeMap<String, u8> = config

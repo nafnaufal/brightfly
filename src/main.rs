@@ -34,11 +34,11 @@ fn main() -> ExitCode {
         Some("probe") => probe(),
         Some("set") => {
             let Some(raw) = args.get(1) else {
-                eprintln!("brightfly set: butuh nilai 0..100");
+                eprintln!("brightfly set: expected a value from 0 to 100");
                 return ExitCode::from(2);
             };
             let Ok(pct) = raw.parse::<u8>() else {
-                eprintln!("brightfly set: '{raw}' bukan angka 0..100");
+                eprintln!("brightfly set: '{raw}' is not a number from 0 to 100");
                 return ExitCode::from(2);
             };
             set(pct)
@@ -53,7 +53,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Some(other) => {
-            eprintln!("perintah tidak dikenal: {other}\n");
+            eprintln!("unknown command: {other}\n");
             usage();
             ExitCode::from(2)
         }
@@ -86,15 +86,15 @@ fn attach_console() {
 
 fn usage() {
     println!(
-        "brightfly {} — kontrol brightness monitor eksternal
+        "brightfly {} — control the brightness of external monitors
 
-Pemakaian:
-  brightfly probe          Tampilkan monitor, metode kontrol, dan nilai sekarang
-  brightfly set <0..100>   Set semua monitor lalu baca ulang untuk verifikasi
-  brightfly stress         Kirim 200 perubahan cepat untuk menguji coalescing
+Usage:
+  brightfly probe          List monitors, control method, and current value
+  brightfly set <0..100>   Set every monitor, then read back to verify
+  brightfly stress         Send 200 rapid changes to exercise coalescing
   brightfly --version
 
-Tanpa argumen, aplikasi tray akan dijalankan.",
+Without arguments the tray app starts.",
         env!("CARGO_PKG_VERSION")
     );
 }
@@ -104,7 +104,7 @@ fn probe() -> ExitCode {
     let infos = supervisor.monitors();
 
     if infos.is_empty() {
-        eprintln!("Tidak ada monitor terdeteksi.");
+        eprintln!("No monitors detected.");
         return ExitCode::FAILURE;
     }
 
@@ -126,7 +126,7 @@ fn probe() -> ExitCode {
     let none = infos.iter().filter(|m| m.method == Method::Unsupported).count();
 
     println!(
-        "Ringkasan: {} monitor — {} DDC/CI, {} gamma-only, {} tidak didukung",
+        "Summary: {} monitor(s) — {} DDC/CI, {} gamma-only, {} unsupported",
         infos.len(),
         ddc,
         gamma,
@@ -135,8 +135,8 @@ fn probe() -> ExitCode {
 
     if ddc == 0 {
         println!();
-        println!("PERINGATAN: tidak ada monitor yang merespons DDC/CI.");
-        println!("Cek: DDC/CI aktif di OSD monitor, dan kabel DP/HDMI langsung ke GPU.");
+        println!("WARNING: no monitor responded to DDC/CI.");
+        println!("Check that DDC/CI is enabled in the monitor OSD and that the DP/HDMI cable goes directly to the GPU.");
     }
 
     supervisor.stop_all();
@@ -148,7 +148,7 @@ fn set(pct: u8) -> ExitCode {
     let supervisor = Supervisor::new();
 
     if supervisor.is_empty() {
-        eprintln!("Tidak ada monitor terdeteksi.");
+        eprintln!("No monitors detected.");
         return ExitCode::FAILURE;
     }
 
@@ -185,13 +185,13 @@ fn set(pct: u8) -> ExitCode {
         );
     }
     if let Err(error) = config.save() {
-        eprintln!("Gagal menyimpan config: {error}");
+        eprintln!("Failed to save config: {error}");
     }
 
     supervisor.stop_all();
 
     if failures > 0 {
-        eprintln!("{failures} monitor tidak mengonfirmasi perubahan.");
+        eprintln!("{failures} monitor(s) did not confirm the change.");
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
@@ -205,7 +205,7 @@ fn stress() -> ExitCode {
     let supervisor = Supervisor::new();
 
     if supervisor.is_empty() {
-        eprintln!("Tidak ada monitor terdeteksi.");
+        eprintln!("No monitors detected.");
         return ExitCode::FAILURE;
     }
 
@@ -225,7 +225,7 @@ fn stress() -> ExitCode {
     let worst = infos.iter().map(|m| m.pct.abs_diff(FINAL)).max().unwrap_or(0);
 
     println!(
-        "Mengirim {SEND_COUNT} perubahan dalam {} ms (harus < 2000 ms)",
+        "Sent {SEND_COUNT} changes in {} ms (must be < 2000 ms)",
         sending.as_millis()
     );
     for monitor in &infos {
@@ -236,7 +236,7 @@ fn stress() -> ExitCode {
             monitor.state.key()
         );
     }
-    println!("Selisih akhir terhadap target {FINAL}%: {worst} poin");
+    println!("Final difference from the {FINAL}% target: {worst} points");
 
     supervisor.stop_all();
 
@@ -244,10 +244,10 @@ fn stress() -> ExitCode {
     let value_ok = worst <= 1;
 
     if sending_ok && value_ok {
-        println!("LULUS");
+        println!("PASS");
         ExitCode::SUCCESS
     } else {
-        eprintln!("GAGAL");
+        eprintln!("FAIL");
         ExitCode::FAILURE
     }
 }

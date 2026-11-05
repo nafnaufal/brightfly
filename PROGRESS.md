@@ -2,7 +2,8 @@
 
 Updated: post-phase 5 (background-thread rescan, PNG icon, tray click fix,
 monitor identity from EDID, auto-close on outside click of the flyout, fix for
-the "100" number, the Inno Setup installer, and the console-window fix).
+the "100" number, the Inno Setup installer, the console-window fix, and the
+English UI).
 
 ## Status
 
@@ -296,7 +297,7 @@ Re-measurement after all changes (release):
 
 | Test | Result |
 |---|---|
-| Exe / setup / zip size | 310.784 / 2.215.158 / 148.470 byte |
+| Exe / setup / zip size | 310.784 / 2.214.966 / 148.433 byte |
 | Start until tray registered | median 131.0 ms (119.0–214.3) |
 | Flyout open | median 14.89 ms (11.05–33.85) |
 | Idle CPU 60 s | 0 ms (0%) |
@@ -338,6 +339,29 @@ Fix in `src/main.rs`:
 | Survives parent shell | start the tray app, exit the shell, check again | process still running ✅ |
 | Single instance | start the exe a second time | still 1 process; existing tray opens ✅ |
 | Unit tests | `cargo test` | 29 pass, harness output visible ✅ |
+
+## English UI (0.1.3)
+
+All user-facing text is now English:
+
+- Tray menu: `Sync all monitors`, `Start with Windows`, `Quit`.
+- CLI: usage, unknown-command and argument errors, `probe`/`set`/`stress`
+  output, `PASS`/`FAIL`.
+- Monitor error messages, renderer diagnostics, and build-script warnings.
+- PowerShell install/uninstall helper output and the shortcut description.
+- The Inno Setup wizard and installer tasks were already English.
+
+Config keys (`sync`, `start_with_windows`, `step`, `brightness`, `method`),
+registry names, and the EDID-based monitor IDs are unchanged, so existing
+`%APPDATA%\Brightfly\config.ini` files keep working.
+
+| Test | Method | Result |
+|---|---|---|
+| Help and version | capture stdout | English text ✅ |
+| `probe` summary | run against the MSI monitor | `Summary: 1 monitor(s) — 1 DDC/CI, 0 gamma-only, 0 unsupported` ✅ |
+| Unknown command | `brightfly oops` | `unknown command: oops`, exit 2 ✅ |
+| Tray menu | open the tray menu | English labels ✅ |
+| Unit tests | `cargo test` | 29 pass ✅ |
 
 ## GitHub release (CI)
 

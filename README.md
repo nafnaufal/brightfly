@@ -7,6 +7,7 @@ Direct2D: no WebView, no XAML runtime, no large dependencies.
 - exe size Â± 0.31 MB (including the multi-resolution icon)
 - Standard Windows wizard installer (Inno Setup) Â± 2.2 MB, per-user, no admin
 - Idle Â± 10.6 MB working set, 2 threads, 0% CPU
+- English UI, tray menu, and command-line output
 - DDC/CI VCP `0x10`; gamma ramp as fallback
 - One slider row per monitor; optional sync
 - Monitor rescan on a background thread after display changes or resume

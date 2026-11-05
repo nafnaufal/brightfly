@@ -220,7 +220,7 @@ impl Renderer {
                 match $expr {
                     Ok(value) => value,
                     Err(error) => {
-                        eprintln!("renderer: {} gagal: {:?}", $name, error);
+                        eprintln!("renderer: {} failed: {:?}", $name, error);
                         return None;
                     }
                 }
@@ -351,7 +351,7 @@ impl Renderer {
 
         unsafe {
             if let Err(error) = self.target.BindDC(hdc, &bounds) {
-                eprintln!("renderer: BindDC gagal: {error:?}");
+                eprintln!("renderer: BindDC failed: {error:?}");
                 return;
             }
             self.target.BeginDraw();
@@ -362,7 +362,7 @@ impl Renderer {
             self.draw_card(rows, hover, dragging, theme, scale);
 
             if let Err(error) = self.target.EndDraw(None, None) {
-                eprintln!("renderer: EndDraw gagal: {error:?}");
+                eprintln!("renderer: EndDraw failed: {error:?}");
             }
         }
     }

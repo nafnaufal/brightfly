@@ -178,14 +178,14 @@ mod tests {
         let text = format!("[general]\nsync=1\n\n[{id}]\nbrightness=64\nmethod=ddc\n");
         let cfg = Config::parse(&text);
 
-        let monitor = cfg.monitors.get(id).expect("section monitor harus ada");
+        let monitor = cfg.monitors.get(id).expect("monitor section missing");
         assert_eq!(monitor.brightness, 64);
         assert_eq!(monitor.method, Method::Ddc);
     }
 
     #[test]
     fn ignores_unknown_keys_and_garbage() {
-        let cfg = Config::parse("warna=merah\n[general]\nfoo=bar\nstep=bukan-angka\n");
+        let cfg = Config::parse("color=red\n[general]\nfoo=bar\nstep=not-a-number\n");
         assert_eq!(cfg.step, 2, "nilai rusak harus jatuh ke default");
         assert_eq!(cfg.monitors.len(), 0);
     }
@@ -200,7 +200,7 @@ mod tests {
 
     #[test]
     fn comments_are_skipped() {
-        let cfg = Config::parse("# catatan\n[general]\n; lain\nsync=0\n");
+        let cfg = Config::parse("# note\n[general]\n; other\nsync=0\n");
         assert!(!cfg.sync);
     }
 

@@ -132,4 +132,4 @@ foreach ($frame in $frames) {
 $writer.Dispose()
 $stream.Dispose()
 
-Write-Host "Ikon ditulis ke $Output ($($frames.Count) ukuran)"
+Write-Host "Icon written to $Output ($($frames.Count) sizes)"

@@ -9,16 +9,16 @@ fn main() {
     println!("cargo:rerun-if-changed={ICON_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
 
-    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR tidak ada"));
+    let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is not set"));
 
     let Some(rc) = find_rc() else {
         println!(
-            "cargo:warning=rc.exe tidak ditemukan; exe dibangun tanpa icon resource"
+            "cargo:warning=rc.exe not found; building without an icon resource"
         );
         return;
     };
 
-    let icon = fs::canonicalize(ICON_PATH).expect("icon tidak ditemukan");
+    let icon = fs::canonicalize(ICON_PATH).expect("icon not found");
     let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
 
     link_resource(&rc, &out_dir, &icon, &version, "brightfly", "Brightfly", "brightfly.exe");
@@ -35,7 +35,7 @@ fn link_resource(
 ) {
     let rc_file = out_dir.join(format!("{bin}.rc"));
     let script = resource_script(icon, version, description, original);
-    fs::write(&rc_file, script).expect("gagal menulis .rc");
+    fs::write(&rc_file, script).expect("failed to write .rc");
 
     let res_file = out_dir.join(format!("{bin}.res"));
     let status = Command::new(rc)
@@ -50,9 +50,9 @@ fn link_resource(
             println!("cargo:rustc-link-arg-bin={bin}={}", res_file.display());
         }
         Ok(status) => println!(
-            "cargo:warning=rc.exe keluar dengan status {status}; resource {bin} dilewati"
+            "cargo:warning=rc.exe exited with status {status}; skipping resource {bin}"
         ),
-        Err(error) => println!("cargo:warning=gagal menjalankan rc.exe: {error}"),
+        Err(error) => println!("cargo:warning=failed to run rc.exe: {error}"),
     }
 }
 

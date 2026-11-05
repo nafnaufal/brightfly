@@ -8,20 +8,20 @@ Set-Location $root
 
 $manifest = Get-Content (Join-Path $root "Cargo.toml") -Raw
 if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
-    throw "Versi tidak ditemukan di Cargo.toml"
+    throw "Version not found in Cargo.toml"
 }
 $version = $Matches[1]
 
 if (-not $SkipBuild) {
     cargo build --release --bin brightfly
     if ($LASTEXITCODE -ne 0) {
-        throw "cargo build --release --bin brightfly gagal"
+        throw "cargo build --release --bin brightfly failed"
     }
 }
 
 $exe = Join-Path $root "target\release\brightfly.exe"
 if (-not (Test-Path $exe)) {
-    throw "Exe tidak ditemukan: $exe"
+    throw "Exe not found: $exe"
 }
 
 $iscc = $env:ISCC
@@ -39,7 +39,7 @@ if (-not $iscc) {
     }
 }
 if (-not $iscc) {
-    throw "ISCC.exe tidak ditemukan. Install Inno Setup 6: winget install JRSoftware.InnoSetup"
+    throw "ISCC.exe not found. Install Inno Setup 6: winget install JRSoftware.InnoSetup"
 }
 
 $dist = Join-Path $root "dist"
@@ -47,12 +47,12 @@ New-Item -ItemType Directory -Path $dist -Force | Out-Null
 
 & $iscc "/DAppVersion=$version" (Join-Path $root "installer\brightfly.iss")
 if ($LASTEXITCODE -ne 0) {
-    throw "Inno Setup gagal"
+    throw "Inno Setup failed"
 }
 
 $setup = Join-Path $dist "brightfly-$version-setup.exe"
 if (-not (Test-Path $setup)) {
-    throw "Installer tidak ditemukan: $setup"
+    throw "Installer not found: $setup"
 }
 
 $portable = Join-Path $dist "brightfly-$version.exe"

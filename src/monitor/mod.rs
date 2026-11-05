@@ -80,10 +80,10 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let msg = match self {
-            Error::Unsupported => "monitor tidak mendukung DDC/CI",
-            Error::NoResponse => "monitor tidak merespons",
-            Error::MonitorOff => "monitor tidak tersedia",
-            Error::Enumeration => "gagal enumerasi monitor",
+            Error::Unsupported => "monitor does not support DDC/CI",
+            Error::NoResponse => "monitor did not respond",
+            Error::MonitorOff => "monitor is unavailable",
+            Error::Enumeration => "monitor enumeration failed",
         };
         f.write_str(msg)
     }

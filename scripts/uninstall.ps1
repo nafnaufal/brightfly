@@ -24,31 +24,31 @@ if ($processes) {
         Start-Sleep -Milliseconds 100
         if (-not (Get-Process -Name "brightfly" -ErrorAction SilentlyContinue)) { break }
     }
-    Write-Step "Proses dihentikan."
+    Write-Step "Process stopped."
 }
 
 if (Get-ItemProperty -Path $RunKey -Name $AppName -ErrorAction SilentlyContinue) {
     Remove-ItemProperty -Path $RunKey -Name $AppName -Force
-    Write-Step "Entri autostart dihapus."
+    Write-Step "Autostart entry removed."
 }
 
 if (Test-Path -LiteralPath $UninstallKey) {
     Remove-Item -LiteralPath $UninstallKey -Recurse -Force
-    Write-Step "Entri Apps & features dihapus."
+    Write-Step "Apps & features entry removed."
 }
 
 if (Test-Path -LiteralPath $ShortcutPath) {
     Remove-Item -LiteralPath $ShortcutPath -Force
-    Write-Step "Shortcut Start Menu dihapus."
+    Write-Step "Start Menu shortcut removed."
 }
 
 if ($PurgeConfig) {
     if (Test-Path -LiteralPath $ConfigDir) {
         Remove-Item -LiteralPath $ConfigDir -Recurse -Force
-        Write-Step "Config dihapus: $ConfigDir"
+        Write-Step "Config removed: $ConfigDir"
     }
 } else {
-    Write-Step "Config dipertahankan: $ConfigDir"
+    Write-Step "Config kept: $ConfigDir"
 }
 
 $runningFromInstallDir = $PSScriptRoot -and
@@ -59,7 +59,7 @@ if (Test-Path -LiteralPath $InstallDir) {
         Start-Process -FilePath "cmd.exe" `
             -ArgumentList "/c", "ping -n 3 127.0.0.1 >nul & rmdir /s /q `"$InstallDir`"" `
             -WindowStyle Hidden | Out-Null
-        Write-Step "Folder instalasi akan dihapus sebentar lagi: $InstallDir"
+        Write-Step "Install folder will be removed shortly: $InstallDir"
     } else {
         $removed = $true
         for ($i = 0; $i -lt 10; $i++) {
@@ -74,14 +74,14 @@ if (Test-Path -LiteralPath $InstallDir) {
         }
 
         if ($removed) {
-            Write-Step "Folder instalasi dihapus: $InstallDir"
+            Write-Step "Install folder removed: $InstallDir"
         } else {
             Start-Process -FilePath "cmd.exe" `
                 -ArgumentList "/c", "ping -n 3 127.0.0.1 >nul & rmdir /s /q `"$InstallDir`"" `
                 -WindowStyle Hidden | Out-Null
-            Write-Step "Folder instalasi dihapus setelah proses selesai."
+            Write-Step "Install folder will be removed after the process exits."
         }
     }
 }
 
-Write-Step "Brightfly sudah di-uninstall."
+Write-Step "Brightfly has been uninstalled."

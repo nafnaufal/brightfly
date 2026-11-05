@@ -30,7 +30,7 @@ function Find-Source {
         }
     }
 
-    throw "brightfly.exe tidak ditemukan. Jalankan 'cargo build --release' dulu, atau pakai -Source <folder>."
+    throw "brightfly.exe not found. Run 'cargo build --release' first, or pass -Source <folder>."
 }
 
 function Stop-Running {
@@ -74,8 +74,8 @@ $targetExe = Join-Path $InstallDir $ExeName
 $version = Read-AppVersion -Path $sourceExe
 
 Write-Host "Brightfly $version"
-Write-Host "  dari : $sourceDir"
-Write-Host "  ke   : $InstallDir"
+Write-Host "  from : $sourceDir"
+Write-Host "  to   : $InstallDir"
 
 Stop-Running
 
@@ -86,9 +86,9 @@ foreach ($file in $payload) {
     $from = Find-Payload -File $file -Primary $sourceDir
     if (-not $from) {
         if ($file -eq "uninstall.ps1") {
-            throw "uninstall.ps1 tidak ditemukan; paket tidak lengkap."
+            throw "uninstall.ps1 not found; the package is incomplete."
         }
-        Write-Host "Lewati $file (tidak ditemukan)"
+        Write-Host "Skipping $file (not found)"
         continue
     }
     $to = Join-Path $InstallDir $file
@@ -101,7 +101,7 @@ $shortcut = $shell.CreateShortcut($ShortcutPath)
 $shortcut.TargetPath = $targetExe
 $shortcut.WorkingDirectory = $InstallDir
 $shortcut.IconLocation = "$targetExe,0"
-$shortcut.Description = "Brightness slider untuk monitor eksternal"
+$shortcut.Description = "Brightness slider for external monitors"
 $shortcut.Save()
 
 New-Item -Path $UninstallKey -Force | Out-Null
@@ -120,17 +120,17 @@ New-ItemProperty -Path $UninstallKey -Name "EstimatedSize" -Value $sizeKb -Prope
 
 if ($NoAutostart) {
     Remove-ItemProperty -Path $RunKey -Name $AppName -ErrorAction SilentlyContinue
-    Write-Host "Autostart: tidak aktif"
+    Write-Host "Autostart: off"
 } else {
     New-ItemProperty -Path $RunKey -Name $AppName -Value "`"$targetExe`"" -PropertyType String -Force | Out-Null
-    Write-Host "Autostart: aktif"
+    Write-Host "Autostart: on"
 }
 
 if (-not $NoStart) {
     Start-Process -FilePath $targetExe -WorkingDirectory $InstallDir | Out-Null
-    Write-Host "Brightfly dijalankan."
+    Write-Host "Brightfly started."
 }
 
 Write-Host ""
-Write-Host "Selesai. Uninstall lewat Settings > Apps, atau jalankan:"
+Write-Host "Done. Uninstall from Settings > Apps, or run:"
 Write-Host "  $uninstallScript"

@@ -233,7 +233,7 @@ mod tests {
     fn reads_edid_of_a_real_monitor() {
         let path = r"\\?\DISPLAY#MSI30B9#7&21ebfe3c&0&UID24646#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
         if let Some(bytes) = read(path) {
-            let edid = parse(&bytes).expect("EDID dari registry harus valid");
+            let edid = parse(&bytes).expect("EDID from the registry must be valid");
             assert_eq!(edid.manufacturer, "MSI");
             assert_eq!(edid.product, 0x30B9);
             assert_eq!(edid.serial.as_deref(), Some("PB9H304C03601"));
