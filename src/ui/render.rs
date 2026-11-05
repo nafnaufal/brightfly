@@ -466,23 +466,24 @@ impl Renderer {
                 }
 
                 let active = hover == Some(index) || dragging == Some(index);
-                if active {
-                    let radius = THUMB_RADIUS_DIP * scale;
-                    let thumb = D2D1_ELLIPSE {
-                        point: windows_numerics::Vector2 {
-                            X: filled_right.max(track_left).min(track_right),
-                            Y: center_y,
-                        },
-                        radiusX: radius,
-                        radiusY: radius,
-                    };
-                    self.brush.SetColor(if row.enabled {
-                        &theme.text()
-                    } else {
-                        &theme.disabled()
-                    });
-                    self.target.FillEllipse(&thumb, &self.brush);
-                }
+                let radius = THUMB_RADIUS_DIP * scale * if active { 1.2 } else { 1.0 };
+                let thumb = D2D1_ELLIPSE {
+                    point: windows_numerics::Vector2 {
+                        X: filled_right.max(track_left).min(track_right),
+                        Y: center_y,
+                    },
+                    radiusX: radius,
+                    radiusY: radius,
+                };
+                // Keep the color in a local: a temporary inside the branch below
+                // can be dropped before SetColor reads it, leaving a random brush.
+                let thumb_color = if row.enabled {
+                    theme.text()
+                } else {
+                    theme.disabled()
+                };
+                self.brush.SetColor(&thumb_color);
+                self.target.FillEllipse(&thumb, &self.brush);
 
                 if let Some((_, format, _, _)) = &self.text_format {
                     self.brush.SetColor(&theme.text());

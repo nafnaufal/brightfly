@@ -6,7 +6,7 @@ use windows::core::w;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, CreateRoundRectRgn, EndPaint, GetMonitorInfoW, InvalidateRect, MonitorFromPoint,
-    SetWindowRgn, UpdateWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
+    ScreenToClient, SetWindowRgn, UpdateWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT,
 };
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
@@ -15,13 +15,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     ReleaseCapture, SetCapture, SetFocus, TrackMouseEvent, TME_LEAVE, TRACKMOUSEEVENT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, GetForegroundWindow,
-    GetWindowThreadProcessId, IsWindowVisible, LoadCursorW, PostMessageW, RegisterClassW,
-    SetForegroundWindow, SetWindowPos, ShowWindow, CS_DROPSHADOW, EVENT_SYSTEM_FOREGROUND,
-    HWND_TOPMOST, IDC_ARROW, SWP_NOACTIVATE, SW_HIDE, SW_SHOW, WA_INACTIVE, WINEVENT_OUTOFCONTEXT,
-    WINEVENT_SKIPOWNPROCESS, WM_ACTIVATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_KILLFOCUS,
-    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SETCURSOR, WNDCLASSW,
-    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos,
+    GetForegroundWindow, GetWindowThreadProcessId, IsWindowVisible, LoadCursorW, PostMessageW,
+    RegisterClassW, SetForegroundWindow, SetWindowPos, ShowWindow, CS_DROPSHADOW,
+    EVENT_SYSTEM_FOREGROUND, HWND_TOPMOST, IDC_ARROW, SWP_NOACTIVATE, SW_HIDE, SW_SHOW, WA_INACTIVE,
+    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_ACTIVATE, WM_DESTROY, WM_ERASEBKGND,
+    WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT,
+    WM_SETCURSOR, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 use crate::app::{WM_FLYOUT_HIDDEN, WM_SET_BRIGHTNESS};
@@ -87,6 +87,22 @@ impl FlyoutData {
             }
         }
         None
+    }
+
+    fn sync_hover_to_cursor(&mut self) {
+        let mut point = POINT::default();
+        unsafe {
+            if GetCursorPos(&mut point).is_err() || !ScreenToClient(self.hwnd, &mut point).as_bool()
+            {
+                return;
+            }
+        }
+
+        let hover = self.row_at(point.x as f32, point.y as f32);
+        if hover != self.hover {
+            self.hover = hover;
+            self.redraw();
+        }
     }
 
     fn drag_to(&mut self, index: usize, x: f32) {
@@ -224,6 +240,7 @@ impl Flyout {
         data.shown_at = Instant::now();
 
         data.ensure_renderer();
+        data.sync_hover_to_cursor();
 
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_SHOW);
@@ -628,6 +645,9 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_MOUSEWHEEL if !pointer.is_null() => {
                 let data = &mut *pointer;
+                if data.hover.is_none() {
+                    data.sync_hover_to_cursor();
+                }
                 let delta = ((wparam.0 >> 16) & 0xFFFF) as u16 as i16 as i32;
                 let step = data.step as i32;
                 let step = if delta > 0 { step } else { -step };

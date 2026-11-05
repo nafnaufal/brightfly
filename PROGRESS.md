@@ -2,8 +2,8 @@
 
 Updated: post-phase 5 (background-thread rescan, PNG icon, tray click fix,
 monitor identity from EDID, auto-close on outside click of the flyout, fix for
-the "100" number, the Inno Setup installer, the console-window fix, and the
-English UI).
+the "100" number, the Inno Setup installer, the console-window fix, the English
+UI, and the always-visible slider thumb).
 
 ## Status
 
@@ -297,7 +297,7 @@ Re-measurement after all changes (release):
 
 | Test | Result |
 |---|---|
-| Exe / setup / zip size | 310.784 / 2.215.088 / 148.430 byte |
+| Exe / setup / zip size | 311.296 / 2.215.292 / 148.651 byte |
 | Start until tray registered | median 131.0 ms (119.0–214.3) |
 | Flyout open | median 14.89 ms (11.05–33.85) |
 | Idle CPU 60 s | 0 ms (0%) |
@@ -362,6 +362,33 @@ registry names, and the EDID-based monitor IDs are unchanged, so existing
 | Unknown command | `brightfly oops` | `unknown command: oops`, exit 2 ✅ |
 | Tray menu | open the tray menu | English labels ✅ |
 | Unit tests | `cargo test` | 29 pass ✅ |
+
+## Always-visible slider thumb (0.1.5)
+
+The thumb was only drawn while a row was hovered or dragged, and even then it
+could disappear. Two problems combined:
+
+1. The draw was wrapped in `if active`, so the resting state had no handle at
+   all. It is now always drawn and only grows to 1.2x while hovered or dragged.
+2. The brush color was passed straight from an `if` expression:
+   `SetColor(if row.enabled { &theme.text() } else { &theme.disabled() })`.
+   Those branch temporaries can be dropped before D2D copies the color, so the
+   brush sometimes received a stale/transparent value. The color is now stored
+   in a local (`thumb_color`) before `SetColor`, which fixed the missing circle.
+
+The flyout also did not know where the cursor was until the first
+`WM_MOUSEMOVE`, so the thumb stayed in its resting size when the flyout opened
+under the pointer. `sync_hover_to_cursor()` now runs on show and before wheel
+handling.
+
+| Test | Method | Result |
+|---|---|---|
+| Thumb at rest | show the flyout with the cursor away, capture the window | white circle visible at 56% ✅ |
+| Thumb on hover | move the cursor over the row, capture again | diameter grows from ~15 px to ~17 px (1.2x) ✅ |
+| Wheel right after opening | show, move onto the row, one notch without prior move | 56% → 58% ✅ |
+| Drag | press and drag left across the track | reached 4%, restored to 56% ✅ |
+| Unit tests | `cargo test` | 29 pass ✅ |
+| Clippy | `cargo clippy --all-targets` | same 7 bin / 8 test warnings as before ✅ |
 
 ## GitHub release (CI)
 
