@@ -63,9 +63,12 @@ brightfly --version
 
 ## Build
 
-Butuh Rust toolchain (edition 2024) dan Windows SDK untuk `rc.exe`
-(icon + version info). Kalau `rc.exe` tidak ditemukan, build tetap berjalan
-tanpa resource dan tray memakai icon bawaan Windows.
+Butuh:
+
+- Rust stable dengan target MSVC (`rustup default stable-msvc`)
+- Visual Studio Build Tools dengan komponen C++ (untuk `link.exe`)
+- Windows SDK (opsional untuk `rc.exe`: icon + version info). Tanpa itu build
+  tetap jalan dengan warning dan tray memakai icon bawaan Windows.
 
 ```powershell
 cargo build --release
@@ -85,6 +88,29 @@ Menghasilkan `dist\brightfly-<versi>-win64.zip` berisi `brightfly.exe`
 README tertanam, jadi jalankan script ini setiap kali merilis versi baru.
 Instalasi dan uninstall tidak memakai admin; keduanya hanya menulis ke HKCU
 dan folder user.
+
+## Rilis GitHub
+
+Push tag yang sama dengan versi di `Cargo.toml`:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+Workflow `.github/workflows/release.yml` akan menjalankan test, build, lalu
+membuat GitHub Release berisi:
+
+- `brightfly-<versi>-win64.zip` (zip lengkap)
+- `brightfly-<versi>-setup.exe`
+- `brightfly-<versi>.exe` (portable)
+- `SHA256SUMS.txt`
+
+Untuk build tanpa membuat release (mis. mengecek CI), jalankan workflow lewat
+**Actions → Release → Run workflow**. Hasilnya tersedia sebagai artifact.
+
+Tag harus persis `v<versi>`; kalau tidak cocok, workflow gagal sebelum
+release dibuat.
 
 Icon dibuat ulang dengan:
 
@@ -106,3 +132,5 @@ Icon dibuat ulang dengan:
 - Kunci per monitor diambil dari nomor seri EDID. Monitor yang tidak
   mencantumkan serial hanya dikenali sampai tingkat model, sehingga dua unit
   identik akan berbagi nilai.
+- Build rilis tidak ditandatangani secara digital. SmartScreen bisa
+  menampilkan peringatan; cocokkan hash file dengan `SHA256SUMS.txt`.

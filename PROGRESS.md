@@ -307,6 +307,29 @@ Pengukuran ulang setelah semua perubahan (release):
 | `brightfly stress` | 200 perubahan dalam 309 ms, selisih akhir 0 poin |
 | Clippy | 7 warning bin / 8 warning test, semuanya pre-existing |
 
+## Rilis GitHub (CI)
+
+Workflow `.github/workflows/release.yml` membangun paket di `windows-latest`
+dan menerbitkan GitHub Release. Tidak ada code signing.
+
+- Trigger: push tag `v*` (mis. `v0.1.0`) atau `workflow_dispatch`.
+- Langkah: `cargo test` → `scripts/package.ps1` → siapkan aset → upload
+  artifact → buat release.
+- Aset release: zip lengkap, `setup.exe`, exe portable, dan `SHA256SUMS.txt`.
+- Tag harus sama dengan versi `Cargo.toml`; workflow gagal sebelum release
+  kalau tidak cocok.
+- `workflow_dispatch` hanya menghasilkan artifact, tanpa release.
+- Workflow belum pernah dijalankan di GitHub Actions dari mesin ini; yang
+  diverifikasi lokal adalah perintah build/package dan blok PowerShell
+  penyiapan aset (termasuk `SHA256SUMS.txt`).
+
+Cara merilis:
+
+```powershell
+git tag v0.1.0
+git push origin v0.1.0
+```
+
 ## Hasil gate (fase 0)
 
 Hardware uji: 1 monitor eksternal MSI.
