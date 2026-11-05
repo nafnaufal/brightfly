@@ -297,7 +297,7 @@ Re-measurement after all changes (release):
 
 | Test | Result |
 |---|---|
-| Exe / setup / zip size | 310.784 / 2.214.966 / 148.433 byte |
+| Exe / setup / zip size | 310.784 / 2.215.088 / 148.430 byte |
 | Start until tray registered | median 131.0 ms (119.0–214.3) |
 | Flyout open | median 14.89 ms (11.05–33.85) |
 | Idle CPU 60 s | 0 ms (0%) |

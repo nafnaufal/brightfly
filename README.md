@@ -55,8 +55,9 @@ Or remove the "downloaded from the internet" mark first, which skips the
 prompt entirely:
 
 ```powershell
-Unblock-File .\brightfly-0.1.2-setup.exe
-.\brightfly-0.1.2-setup.exe
+$setup = Get-ChildItem .\brightfly-*-setup.exe | Select-Object -First 1
+Unblock-File $setup
+& $setup
 ```
 
 The same can be done in Explorer: right-click the file â†’ **Properties** â†’
@@ -65,7 +66,7 @@ tick **Unblock** â†’ **OK**.
 Verify the download before running it:
 
 ```powershell
-certutil -hashfile brightfly-0.1.2-setup.exe SHA256
+certutil -hashfile $setup.FullName SHA256
 ```
 
 Compare the output with the matching line in `SHA256SUMS.txt` from the same
@@ -157,8 +158,8 @@ write to HKCU and user folders.
 Push a tag that matches the version in `Cargo.toml`:
 
 ```powershell
-git tag v0.1.2
-git push origin v0.1.2
+git tag v<version>
+git push origin v<version>
 ```
 
 The `.github/workflows/release.yml` workflow installs Inno Setup, runs the
