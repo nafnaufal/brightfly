@@ -6,6 +6,12 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
+$manifest = Get-Content (Join-Path $root "Cargo.toml") -Raw
+if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
+    throw "Versi tidak ditemukan di Cargo.toml"
+}
+$version = $Matches[1]
+
 if (-not $SkipBuild) {
     cargo build --release --bin brightfly
     if ($LASTEXITCODE -ne 0) {
@@ -13,50 +19,60 @@ if (-not $SkipBuild) {
     }
 }
 
-$manifest = Get-Content (Join-Path $root "Cargo.toml") -Raw
-if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
-    throw "Versi tidak ditemukan di Cargo.toml"
-}
-$version = $Matches[1]
-
 $exe = Join-Path $root "target\release\brightfly.exe"
 if (-not (Test-Path $exe)) {
     throw "Exe tidak ditemukan: $exe"
 }
 
-$name = "brightfly-$version-win64"
-$dist = Join-Path $root "dist"
-$stage = Join-Path $dist $name
-$zip = Join-Path $dist "$name.zip"
+$iscc = $env:ISCC
+if (-not $iscc) {
+    $iscc = Get-Command iscc -ErrorAction SilentlyContinue |
+        Select-Object -First 1 -ExpandProperty Source
+}
+if (-not $iscc) {
+    foreach ($candidate in @(
+        (Join-Path $env:LOCALAPPDATA "Programs\Inno Setup 6\ISCC.exe"),
+        "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+        "C:\Program Files\Inno Setup 6\ISCC.exe"
+    )) {
+        if (Test-Path $candidate) { $iscc = $candidate; break }
+    }
+}
+if (-not $iscc) {
+    throw "ISCC.exe tidak ditemukan. Install Inno Setup 6: winget install JRSoftware.InnoSetup"
+}
 
+$dist = Join-Path $root "dist"
+New-Item -ItemType Directory -Path $dist -Force | Out-Null
+
+& $iscc "/DAppVersion=$version" (Join-Path $root "installer\brightfly.iss")
+if ($LASTEXITCODE -ne 0) {
+    throw "Inno Setup gagal"
+}
+
+$setup = Join-Path $dist "brightfly-$version-setup.exe"
+if (-not (Test-Path $setup)) {
+    throw "Installer tidak ditemukan: $setup"
+}
+
+$portable = Join-Path $dist "brightfly-$version.exe"
+Copy-Item $exe $portable -Force
+
+$stage = Join-Path $dist "brightfly-$version-win64"
 if (Test-Path $stage) {
     Remove-Item $stage -Recurse -Force
 }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
-
-Copy-Item $exe $stage
+Copy-Item $exe (Join-Path $stage "brightfly.exe")
 Copy-Item (Join-Path $root "README.md") $stage
+Copy-Item (Join-Path $root "LICENSE") $stage
 
-$env:BRIGHTFLY_PAYLOAD_DIR = $stage
-try {
-    cargo build --release --bin brightfly-setup
-    if ($LASTEXITCODE -ne 0) {
-        throw "cargo build --release --bin brightfly-setup gagal"
-    }
-} finally {
-    Remove-Item Env:\BRIGHTFLY_PAYLOAD_DIR -ErrorAction SilentlyContinue
-}
-
-$setup = Join-Path $root "target\release\brightfly-setup.exe"
-if (-not (Test-Path $setup)) {
-    throw "Installer tidak ditemukan: $setup"
-}
-Copy-Item $setup (Join-Path $stage "setup.exe")
-
+$zip = Join-Path $dist "brightfly-$version-win64.zip"
 if (Test-Path $zip) {
     Remove-Item $zip -Force
 }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -CompressionLevel Optimal
 
-$size = (Get-Item $zip).Length
-Write-Host ("Paket: {0} ({1:N0} byte)" -f $zip, $size)
+Get-ChildItem $dist -File |
+    Where-Object { $_.Name -like "brightfly-$version-*" } |
+    Select-Object Name, Length

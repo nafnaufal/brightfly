@@ -5,7 +5,7 @@ mirrors the Windows volume flyout. Written with native Rust + Win32 and
 Direct2D: no WebView, no XAML runtime, no large dependencies.
 
 - exe size ± 0.31 MB (including the multi-resolution icon)
-- Native `setup.exe` installer ± 0.61 MB, per-user, no admin
+- Standard Windows wizard installer (Inno Setup) ± 2.2 MB, per-user, no admin
 - Idle ± 10.6 MB working set, 2 threads, 0% CPU
 - DDC/CI VCP `0x10`; gamma ramp as fallback
 - One slider row per monitor; optional sync
@@ -18,29 +18,31 @@ Ready-to-use downloads are on the [Releases](https://github.com/nafnaufal/bright
 
 ## Installation
 
-Extract `brightfly-<version>-win64.zip`, then run `setup.exe`. This native
-per-user installer does not need admin: it copies the app to
-`%LOCALAPPDATA%\Programs\Brightfly`, creates a Start Menu shortcut, registers
-an entry in Settings → Apps, and enables autostart.
+Download `brightfly-<version>-setup.exe` from
+[Releases](https://github.com/nafnaufal/brightfly/releases), run it, and follow
+the wizard (Next → Install → Finish). It is built with Inno Setup and behaves
+like a regular Windows installer:
 
-```powershell
-.\setup.exe                  # install + autostart + launch
-.\setup.exe --no-autostart   # without autostart
-.\setup.exe --no-start       # without launching immediately
-.\setup.exe --quiet          # no dialogs
-```
+- Installs to `%LOCALAPPDATA%\Programs\Brightfly`; no administrator rights
+- Creates a Start Menu shortcut and a Settings → Apps entry
+- **Start Brightfly when I sign in** is checked by default; a desktop shortcut
+  is optional
+- Offers to launch the app when the wizard finishes
 
-To remove it, run `uninstall.exe` (in the installation folder) or use
-Settings → Apps. Config in `%APPDATA%\Brightfly` is preserved; add
-`--purge-config` to delete it as well.
+Uninstall through **Settings → Apps → Brightfly → Uninstall** (or
+`unins000.exe` in the installation folder). Settings in
+`%APPDATA%\Brightfly\config.ini` are kept, so your brightness values survive a
+reinstall; delete that folder manually to start fresh. Running the installer
+again upgrades in place, even if Brightfly is still running.
 
-`brightfly.exe` can still be run directly as a portable build with no
+The zip `brightfly-<version>-win64.zip` contains the portable
+`brightfly.exe` plus `README.md` and `LICENSE`. It can be run directly with no
 installation.
 
 ### SmartScreen
 
 Release builds are unsigned, so Windows may show **"Windows protected your
-PC"** the first time `setup.exe` is run. That is expected for a new unsigned
+PC"** the first time the installer is run. That is expected for a new unsigned
 project, not a corrupted download.
 
 Allow it once:
@@ -52,8 +54,8 @@ Or remove the "downloaded from the internet" mark first, which skips the
 prompt entirely:
 
 ```powershell
-Unblock-File .\setup.exe
-.\setup.exe
+Unblock-File .\brightfly-0.1.1-setup.exe
+.\brightfly-0.1.1-setup.exe
 ```
 
 The same can be done in Explorer: right-click the file → **Properties** →
@@ -62,7 +64,7 @@ tick **Unblock** → **OK**.
 Verify the download before running it:
 
 ```powershell
-certutil -hashfile setup.exe SHA256
+certutil -hashfile brightfly-0.1.1-setup.exe SHA256
 ```
 
 Compare the output with the matching line in `SHA256SUMS.txt` from the same
@@ -103,6 +105,8 @@ Requirements:
 - Windows SDK (optional, for `rc.exe`: icon + version info). Without it the
   build still succeeds with a warning and the tray falls back to the stock
   Windows icon.
+- [Inno Setup 6](https://jrsoftware.org/isinfo.php), only needed for packaging
+  (`winget install JRSoftware.InnoSetup`)
 
 ```powershell
 cargo build --release
@@ -129,26 +133,32 @@ layout.
 .\scripts\package.ps1
 ```
 
-Produces `dist\brightfly-<version>-win64.zip` containing `brightfly.exe`
-(portable), `setup.exe`, and the README. `setup.exe` embeds the exe + README
-payload, so run this script for every new release. Installation and
-uninstallation do not use admin; both only write to HKCU and user folders.
+Builds the release exe, compiles `installer\brightfly.iss` with Inno Setup, and
+produces three files in `dist\`:
+
+- `brightfly-<version>-setup.exe` — the wizard installer
+- `brightfly-<version>.exe` — portable single executable
+- `brightfly-<version>-win64.zip` — portable exe + `README.md` + `LICENSE`
+
+The script finds `ISCC.exe` through `%ISCC%`, `PATH`, or the default Inno Setup
+install folder. Installation and uninstallation do not use admin; both only
+write to HKCU and user folders.
 
 ## GitHub releases
 
 Push a tag that matches the version in `Cargo.toml`:
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
-The `.github/workflows/release.yml` workflow runs the tests, builds the
-package, and creates a GitHub Release containing:
+The `.github/workflows/release.yml` workflow installs Inno Setup, runs the
+tests, builds the package, and creates a GitHub Release containing:
 
-- `brightfly-<version>-win64.zip` (full zip)
 - `brightfly-<version>-setup.exe`
 - `brightfly-<version>.exe` (portable)
+- `brightfly-<version>-win64.zip` (full zip)
 - `SHA256SUMS.txt`
 
 To build without creating a release (for example, to check CI), run the

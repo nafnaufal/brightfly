@@ -2,7 +2,7 @@
 
 Updated: post-phase 5 (background-thread rescan, PNG icon, tray click fix,
 monitor identity from EDID, auto-close on outside click of the flyout, fix for
-the "100" number, and per-user installer/uninstaller).
+the "100" number, and the Inno Setup installer).
 
 ## Status
 
@@ -243,61 +243,60 @@ Fix in `src/ui/render.rs`:
 | Card width | screenshot | still 192×48; track does not collide with the number ✅ |
 | Unit test | `cargo test` | 29 pass ✅ |
 
-## Native installer and uninstaller (`setup.exe`)
+## Installer and uninstaller (Inno Setup)
 
-The installer is now a separate Rust binary (`src/bin/setup.rs`, target
-`brightfly-setup`). During packaging, `build.rs` embeds `brightfly.exe` and
-`README.md` into the binary via `BRIGHTFLY_PAYLOAD_DIR`, then
-`scripts/package.ps1` copies it as `setup.exe`. There is no PowerShell,
-MSI, or extraction to a temp folder during installation; it stays per-user without admin.
+Version 0.1.0 shipped a hand-written Rust installer (`src/bin/setup.rs`, target
+`brightfly-setup`). It was dropped in 0.1.1: a user reported that after
+allowing the SmartScreen prompt, only an empty console window appeared and
+nothing was installed, and the binary left no log or error to diagnose. The
+installer is now a standard Inno Setup wizard (`installer/brightfly.iss`);
+the application itself is still a single small Rust exe.
 
-`setup.exe`:
+Installer configuration:
 
-- Copies the payload to `%LOCALAPPDATA%\Programs\Brightfly`, then copies
-  itself as `uninstall.exe`.
-- Creates the Start Menu shortcut via COM `IShellLinkW` + `IPersistFile`.
-- Registers the entry `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Brightfly`
-  (`DisplayName`, `DisplayVersion`, `DisplayIcon`, `InstallLocation`,
-  `UninstallString`, `QuietUninstallString`, `EstimatedSize`, `NoModify=1`,
-  `NoRepair=1`) so it appears in Settings → Apps.
-- Autostart via the Run value `Brightfly`; `--no-autostart` removes it.
-- Stops the old instance with `WM_CLOSE` (fallback `TerminateProcess`)
-  before overwriting files. File writes are retried for up to 3 seconds if the exe is still
-  locked.
-- Flags: `--no-start`, `--quiet`, `--help`.
+- `PrivilegesRequired=lowest` with `DefaultDirName={autopf}\Brightfly`, which
+  resolves to `%LOCALAPPDATA%\Programs\Brightfly`; no admin prompt.
+- `WizardStyle=modern`, `SetupLogging=yes`, `LicenseFile=..\LICENSE`,
+  `SetupIconFile=..\assets\brightfly.ico`, `MinVersion=10.0`, x64 only.
+- Tasks: `autostart` (checked on first install through `checkedonce`, writes the
+  Run value `Brightfly` with `uninsdeletevalue`) and `desktopicon` (unchecked).
+- Start Menu shortcut plus an entry `HKCU\...\Uninstall\{6A9791EB-...}_is1`, so
+  it appears in Settings → Apps with the app icon.
+- `[InstallDelete]` removes the legacy `uninstall.exe`; `[Registry]` deletes the
+  legacy `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Brightfly`
+  key left by 0.1.0.
+- `[Code] PrepareToInstall` and `[UninstallRun]` run
+  `taskkill /IM brightfly.exe /F`, so upgrading or uninstalling works while the
+  app is running.
+- The uninstaller is `unins000.exe`. Config in `%APPDATA%\Brightfly` is kept.
 
-Uninstall mode is selected from the file name (`uninstall.exe`) or the flag
-`--uninstall`. The uninstaller stops the process, removes the Run value, the Apps &
-features entry, and the shortcut. The config in `%APPDATA%\Brightfly` is kept;
-`--purge-config` removes it. The install folder is removed via a scheduled
-`cmd /c rmdir` after the dialog closes, because the exe cannot delete
-itself.
+`scripts/package.ps1` builds the release exe, locates `ISCC.exe` via `%ISCC%`,
+`PATH`, or the default Inno Setup folder, compiles the `.iss` with
+`/DAppVersion=<version>`, and writes three files to `dist\`:
+`brightfly-<version>-setup.exe`, `brightfly-<version>.exe`, and
+`brightfly-<version>-win64.zip` (portable exe + README + LICENSE).
 
 The old PowerShell scripts (`install.cmd/ps1`, `uninstall.cmd/ps1`) still exist for
 installation from a source checkout, but are not included in the zip.
 
 | Test | Method | Result |
 |---|---|---|
-| Install from zip | `setup.exe --no-start --quiet` | exit 0; `brightfly.exe`, `README.md`, `uninstall.exe` ✅ |
-| Default dialog | `setup.exe`, close the dialog | app runs, exit 0 ✅ |
-| `--no-autostart` | install with the flag | Run value absent, exit 0 ✅ |
-| `--quiet` | install/uninstall with the flag | no dialog, exit 0 ✅ |
-| Reinstall while the app runs | run setup again without closing the app | old process stops, files overwritten, exit 0 ✅ |
-| Registry | read the Run + Uninstall keys | metadata complete, paths quoted ✅ |
-| Shortcut | read the `.lnk` via WScript.Shell | target and working dir correct ✅ |
-| Run the installed exe | `--version`, tray process | 0.1.0, app runs ✅ |
-| Uninstall from the install folder | `uninstall.exe --quiet` | exit 0, folder gone in ±2 s ✅ |
-| Config preserved | normal uninstall | `config.ini` still present ✅ |
-| `--purge-config` | uninstall with the flag | config folder removed ✅ |
-| Uninstall when not installed | `setup.exe --uninstall --quiet` | exit 0, no error ✅ |
-| Setup resources | `VersionInfo` | `Brightfly Setup`, `setup.exe` ✅ |
-| Leftover state | after uninstall | Run, Uninstall key, shortcut, process, folder clean ✅ |
+| Silent install | `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-` | exit 0; `brightfly.exe`, `README.md`, `LICENSE`, `unins000.*` ✅ |
+| Default tasks | silent install | Run value and Start Menu shortcut created ✅ |
+| Uninstall entry | read `HKCU\...\Uninstall\{6A9791EB-...}_is1` | `Brightfly 0.1.1`, DisplayIcon points at the exe ✅ |
+| Legacy cleanup | install over a 0.1.0 install | `uninstall.exe` and the old `...\Uninstall\Brightfly` key removed ✅ |
+| Run the installed exe | `--version` and tray process | `brightfly 0.1.1`, app runs ✅ |
+| Reinstall while the app runs | run setup again with the app open | process killed, files replaced, exit 0 ✅ |
+| Uninstall while the app runs | `unins000.exe /VERYSILENT` | exit 0, process stops, folder removed ✅ |
+| Uninstall cleanup | after uninstall | folder, shortcut, Run value, Uninstall key gone ✅ |
+| Config preserved | normal uninstall | `%APPDATA%\Brightfly\config.ini` still present ✅ |
+| Setup log | `%TEMP%\Setup Log*.txt` | full per-file log written ✅ |
 
 Re-measurement after all changes (release):
 
 | Test | Result |
 |---|---|
-| Exe / setup / zip size | 310.272 / 608.256 / 422.648 byte |
+| Exe / setup / zip size | 310.272 / 2.214.757 / 147.970 byte |
 | Start until tray registered | median 131.0 ms (119.0–214.3) |
 | Flyout open | median 14.89 ms (11.05–33.85) |
 | Idle CPU 60 s | 0 ms (0%) |
@@ -307,22 +306,26 @@ Re-measurement after all changes (release):
 | `brightfly stress` | 200 changes in 309 ms, final delta 0 points |
 | Clippy | 7 bin warnings / 8 test warnings, all pre-existing |
 
+The zip is smaller than the 0.1.0 package because it no longer carries the
+installer; `setup.exe` is now a separate release asset.
+
 ## GitHub release (CI)
 
 The workflow `.github/workflows/release.yml` builds the package on `windows-latest`
 and publishes a GitHub Release. There is no code signing.
 
-- Trigger: push tag `v*` (e.g. `v0.1.0`) or `workflow_dispatch`.
-- Steps: `cargo test` → `scripts/package.ps1` → prepare assets → upload
-  artifact → create release.
-- Release assets: full zip, `setup.exe`, portable exe, and `SHA256SUMS.txt`.
+- Trigger: push tag `v*` (e.g. `v0.1.1`) or `workflow_dispatch`.
+- Steps: install Inno Setup (Chocolatey) → `cargo test` →
+  `scripts/package.ps1` → prepare assets → upload artifact → create release.
+- Release assets: setup exe, portable exe, full zip, and `SHA256SUMS.txt`.
 - The tag must match the `Cargo.toml` version; the workflow fails before the release
   if they do not match.
 - `workflow_dispatch` only produces artifacts, no release.
 - First run: `v0.1.0` (run `41979730507`) succeeded in 1m55s and published
-  <https://github.com/nafnaufal/brightfly/releases/tag/v0.1.0>. Assets from CI:
-  `setup.exe` 607.232 B, zip 432.443 B, exe 309.760 B, `SHA256SUMS.txt` 273 B.
-  Sizes differ slightly from the local build because the runner toolchain differs.
+  <https://github.com/nafnaufal/brightfly/releases/tag/v0.1.0> with the old Rust
+  installer. Assets from CI: `setup.exe` 607.232 B, zip 432.443 B, exe 309.760 B,
+  `SHA256SUMS.txt` 273 B. Sizes differ slightly from the local build because the
+  runner toolchain differs.
 - The workflow uses `actions/checkout@v7`, `actions/upload-artifact@v7`,
   `softprops/action-gh-release@v3`, and `Swatinem/rust-cache@v2.9.3` so it
   stays clear of Node 20 deprecation warnings.
@@ -330,8 +333,8 @@ and publishes a GitHub Release. There is no code signing.
 How to release:
 
 ```powershell
-git tag v0.1.0
-git push origin v0.1.0
+git tag v0.1.1
+git push origin v0.1.1
 ```
 
 ## Gate results (phase 0)
@@ -445,11 +448,11 @@ radius 8, icon 16 px, track 4 px from x=42 to x=150, number 15 px right-aligned)
   is looked up in the Windows SDK; the compiled resource is passed with
   `cargo:rustc-link-arg`. There is no new build dependency and the build still works
   (with a warning) on machines without the Windows SDK.
-- **The installer/uninstaller is a native Rust binary, not MSI/NSIS.** NSIS/WiX is not
-  available on the build machine and adds no value for a per-user app without a service.
-  The payload is embedded via `build.rs`, while the shortcut, registry, autostart, and
-  cleanup are handled directly with Win32/COM. The result is a single `setup.exe` with no
-  temp extraction and no PowerShell dependency.
+- **The installer is an Inno Setup wizard, not a custom Rust binary.** 0.1.0 shipped a
+  hand-written Rust setup that produced no window when it failed, which made install
+  failures undiagnosable. Inno Setup gives a standard wizard, a persistent setup log,
+  a real uninstaller, and correct Settings → Apps integration for a per-user app with
+  no service and no admin rights.
 - **Monitor enumeration on display change/resume runs on a background thread.** A DDC probe
   can block, so results are sent over `mpsc` and installed via
   `WM_RESCAN_DONE`; consecutive requests are coalesced into one rescan. The initial
@@ -514,9 +517,12 @@ radius 8, icon 16 px, track 4 px from x=42 to x=150, number 15 px right-aligned)
   signing yet. Workarounds documented in the README: *More info → Run anyway*,
   or `Unblock-File` before running. Reputation only improves with downloads or
   a paid OV/EV certificate.
-- **The uninstaller delays folder removal by ±2 seconds** via `cmd /c rmdir`,
-  because the exe cannot delete itself while running. This is
-  intentional, not a failure.
+- **The installer requires Inno Setup 6 on the build machine.** CI installs it
+  through Chocolatey; a local `scripts/package.ps1` run fails with a clear
+  message if `ISCC.exe` cannot be found.
+- **The uninstaller leaves `%APPDATA%\Brightfly\config.ini` in place**, so a
+  reinstall keeps the last brightness values. This is intentional; delete the
+  folder manually to reset.
 
 ## How to run
 

@@ -10,7 +10,6 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     let out_dir = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR tidak ada"));
-    emit_setup_payload(&out_dir);
 
     let Some(rc) = find_rc() else {
         println!(
@@ -23,45 +22,6 @@ fn main() {
     let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
 
     link_resource(&rc, &out_dir, &icon, &version, "brightfly", "Brightfly", "brightfly.exe");
-    link_resource(
-        &rc,
-        &out_dir,
-        &icon,
-        &version,
-        "brightfly-setup",
-        "Brightfly Setup",
-        "setup.exe",
-    );
-}
-
-// Filled by scripts/package.ps1; a plain cargo build produces an empty payload.
-fn emit_setup_payload(out_dir: &Path) {
-    println!("cargo:rerun-if-env-changed=BRIGHTFLY_PAYLOAD_DIR");
-
-    let dir = env::var_os("BRIGHTFLY_PAYLOAD_DIR").map(PathBuf::from);
-    let mut code = String::new();
-    let mut ready = true;
-
-    for (name, file) in [("APP_EXE", "brightfly.exe"), ("README", "README.md")] {
-        let path = dir.as_ref().map(|dir| dir.join(file)).filter(|path| path.is_file());
-        match path {
-            Some(path) => {
-                let path = fs::canonicalize(&path).unwrap_or(path);
-                println!("cargo:rerun-if-changed={}", path.display());
-                let literal = path.to_string_lossy().replace('\\', "/");
-                code.push_str(&format!(
-                    "pub static {name}: &[u8] = include_bytes!(r#\"{literal}\"#);\n"
-                ));
-            }
-            None => {
-                ready = false;
-                code.push_str(&format!("pub static {name}: &[u8] = &[];\n"));
-            }
-        }
-    }
-
-    code.push_str(&format!("pub const READY: bool = {ready};\n"));
-    fs::write(out_dir.join("setup_payload.rs"), code).expect("gagal menulis setup_payload.rs");
 }
 
 fn link_resource(
