@@ -4,9 +4,9 @@ Brightness slider for external monitors on Windows 11, with a flyout that
 mirrors the Windows volume flyout. Written with native Rust + Win32 and
 Direct2D: no WebView, no XAML runtime, no large dependencies.
 
-- exe size ± 0.31 MB (including the multi-resolution icon)
-- Standard Windows wizard installer (Inno Setup) ± 2.2 MB, per-user, no admin
-- Idle ± 10.6 MB working set, 2 threads, 0% CPU
+- exe size Â± 0.31 MB (including the multi-resolution icon)
+- Standard Windows wizard installer (Inno Setup) Â± 2.2 MB, per-user, no admin
+- Idle Â± 10.6 MB working set, 2 threads, 0% CPU
 - DDC/CI VCP `0x10`; gamma ramp as fallback
 - One slider row per monitor; optional sync
 - Monitor rescan on a background thread after display changes or resume
@@ -20,16 +20,16 @@ Ready-to-use downloads are on the [Releases](https://github.com/nafnaufal/bright
 
 Download `brightfly-<version>-setup.exe` from
 [Releases](https://github.com/nafnaufal/brightfly/releases), run it, and follow
-the wizard (Next → Install → Finish). It is built with Inno Setup and behaves
+the wizard (Next â†’ Install â†’ Finish). It is built with Inno Setup and behaves
 like a regular Windows installer:
 
 - Installs to `%LOCALAPPDATA%\Programs\Brightfly`; no administrator rights
-- Creates a Start Menu shortcut and a Settings → Apps entry
+- Creates a Start Menu shortcut and a Settings â†’ Apps entry
 - **Start Brightfly when I sign in** is checked by default; a desktop shortcut
   is optional
 - Offers to launch the app when the wizard finishes
 
-Uninstall through **Settings → Apps → Brightfly → Uninstall** (or
+Uninstall through **Settings â†’ Apps â†’ Brightfly â†’ Uninstall** (or
 `unins000.exe` in the installation folder). Settings in
 `%APPDATA%\Brightfly\config.ini` are kept, so your brightness values survive a
 reinstall; delete that folder manually to start fresh. Running the installer
@@ -54,17 +54,17 @@ Or remove the "downloaded from the internet" mark first, which skips the
 prompt entirely:
 
 ```powershell
-Unblock-File .\brightfly-0.1.1-setup.exe
-.\brightfly-0.1.1-setup.exe
+Unblock-File .\brightfly-0.1.2-setup.exe
+.\brightfly-0.1.2-setup.exe
 ```
 
-The same can be done in Explorer: right-click the file → **Properties** →
-tick **Unblock** → **OK**.
+The same can be done in Explorer: right-click the file â†’ **Properties** â†’
+tick **Unblock** â†’ **OK**.
 
 Verify the download before running it:
 
 ```powershell
-certutil -hashfile brightfly-0.1.1-setup.exe SHA256
+certutil -hashfile brightfly-0.1.2-setup.exe SHA256
 ```
 
 Compare the output with the matching line in `SHA256SUMS.txt` from the same
@@ -72,7 +72,8 @@ release.
 
 ## Usage
 
-Run `brightfly.exe`. A sun icon appears in the tray area.
+Run `brightfly.exe`. A sun icon appears in the tray area. The app is a GUI
+process: it opens no console window, and closing a terminal never affects it.
 
 | Action | Result |
 |---|---|
@@ -95,6 +96,12 @@ brightfly set <0..100>   Set every monitor, then read back to verify
 brightfly stress         Send 200 rapid changes to exercise coalescing
 brightfly --version
 ```
+
+These commands attach to the terminal they are started from and print there;
+piped or redirected output works as usual. Because the exe is a GUI process,
+some shells return to the prompt before the output appears; use a pipe
+(`brightfly probe | Out-Host`) or `cargo run -- probe` when you need the shell
+to wait. Without arguments the exe starts the tray app instead.
 
 ## Build
 
@@ -136,9 +143,9 @@ layout.
 Builds the release exe, compiles `installer\brightfly.iss` with Inno Setup, and
 produces three files in `dist\`:
 
-- `brightfly-<version>-setup.exe` — the wizard installer
-- `brightfly-<version>.exe` — portable single executable
-- `brightfly-<version>-win64.zip` — portable exe + `README.md` + `LICENSE`
+- `brightfly-<version>-setup.exe` â€” the wizard installer
+- `brightfly-<version>.exe` â€” portable single executable
+- `brightfly-<version>-win64.zip` â€” portable exe + `README.md` + `LICENSE`
 
 The script finds `ISCC.exe` through `%ISCC%`, `PATH`, or the default Inno Setup
 install folder. Installation and uninstallation do not use admin; both only
@@ -149,8 +156,8 @@ write to HKCU and user folders.
 Push a tag that matches the version in `Cargo.toml`:
 
 ```powershell
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
 The `.github/workflows/release.yml` workflow installs Inno Setup, runs the
@@ -162,7 +169,7 @@ tests, builds the package, and creates a GitHub Release containing:
 - `SHA256SUMS.txt`
 
 To build without creating a release (for example, to check CI), run the
-workflow through **Actions → Release → Run workflow**. The result is available
+workflow through **Actions â†’ Release â†’ Run workflow**. The result is available
 as an artifact.
 
 The tag must be exactly `v<version>`; otherwise the workflow fails before the

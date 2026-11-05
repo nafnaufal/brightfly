@@ -1,12 +1,22 @@
+#![cfg_attr(not(test), windows_subsystem = "windows")]
+
 mod app;
 mod autostart;
 mod config;
 mod monitor;
 mod ui;
 
+use std::fs::OpenOptions;
+use std::os::windows::io::AsRawHandle;
 use std::process::ExitCode;
 use std::thread;
 use std::time::{Duration, Instant};
+
+use windows::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
+use windows::Win32::System::Console::{
+    AttachConsole, GetStdHandle, SetStdHandle, ATTACH_PARENT_PROCESS, STD_ERROR_HANDLE,
+    STD_OUTPUT_HANDLE,
+};
 
 use config::{Config, MonitorConfig};
 use monitor::{Method, State, Supervisor};
@@ -14,6 +24,10 @@ use monitor::{Method, State, Supervisor};
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let command = args.first().map(String::as_str);
+
+    if command.is_some() {
+        attach_console();
+    }
 
     match command {
         None => app::run(),
@@ -44,6 +58,30 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+// GUI subsystem builds get no console; CLI output needs the parent terminal's
+// handles installed before the first println!.
+fn attach_console() {
+    unsafe {
+        let _ = AttachConsole(ATTACH_PARENT_PROCESS);
+    }
+
+    let mut handles = Vec::new();
+    for std in [STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        let existing = unsafe { GetStdHandle(std) }.unwrap_or(HANDLE::default());
+        if !existing.0.is_null() && existing != INVALID_HANDLE_VALUE {
+            continue;
+        }
+        let Ok(file) = OpenOptions::new().write(true).open("CONOUT$") else {
+            continue;
+        };
+        unsafe {
+            let _ = SetStdHandle(std, HANDLE(file.as_raw_handle()));
+        }
+        handles.push(file);
+    }
+    std::mem::forget(handles);
 }
 
 fn usage() {

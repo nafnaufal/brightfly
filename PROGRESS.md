@@ -2,7 +2,7 @@
 
 Updated: post-phase 5 (background-thread rescan, PNG icon, tray click fix,
 monitor identity from EDID, auto-close on outside click of the flyout, fix for
-the "100" number, and the Inno Setup installer).
+the "100" number, the Inno Setup installer, and the console-window fix).
 
 ## Status
 
@@ -296,7 +296,7 @@ Re-measurement after all changes (release):
 
 | Test | Result |
 |---|---|
-| Exe / setup / zip size | 310.272 / 2.214.757 / 147.970 byte |
+| Exe / setup / zip size | 310.784 / 2.215.158 / 148.470 byte |
 | Start until tray registered | median 131.0 ms (119.0–214.3) |
 | Flyout open | median 14.89 ms (11.05–33.85) |
 | Idle CPU 60 s | 0 ms (0%) |
@@ -308,6 +308,36 @@ Re-measurement after all changes (release):
 
 The zip is smaller than the 0.1.0 package because it no longer carries the
 installer; `setup.exe` is now a separate release asset.
+
+## Tray app no longer owns a console (0.1.2)
+
+Up to 0.1.1 the binary was built as a console-subsystem executable. Windows
+therefore allocated a console window on every launch. Two consequences:
+
+- A terminal window appeared whenever the app started, including from the Start
+  Menu shortcut.
+- The process was attached to that console. Closing the window sent
+  `CTRL_CLOSE_EVENT` and terminated the app.
+
+Fix in `src/main.rs`:
+
+- `#![cfg_attr(not(test), windows_subsystem = "windows")]` for the release
+  binary. The `cfg_attr` keeps `cargo test` on the console subsystem so the test
+  harness can still print results.
+- CLI commands (`probe`, `set`, `stress`, `help`, `--version`) call
+  `AttachConsole(ATTACH_PARENT_PROCESS)` and install `CONOUT$` only when the
+  inherited stdout/stderr handles are null. Piped or redirected handles are left
+  alone, so `brightfly probe > out.txt` and `cargo run -- probe` still work.
+- The tray path (no arguments) never attaches to a console.
+
+| Test | Method | Result |
+|---|---|---|
+| PE subsystem | parse the `OptionalHeader.Subsystem` field | `2` (GUI), not `3` ✅ |
+| `--version` | run with stdout as a pipe | `brightfly 0.1.2` captured ✅ |
+| `help` / `probe` | same | text and monitor list captured ✅ |
+| Survives parent shell | start the tray app, exit the shell, check again | process still running ✅ |
+| Single instance | start the exe a second time | still 1 process; existing tray opens ✅ |
+| Unit tests | `cargo test` | 29 pass, harness output visible ✅ |
 
 ## GitHub release (CI)
 
@@ -523,6 +553,10 @@ radius 8, icon 16 px, track 4 px from x=42 to x=150, number 15 px right-aligned)
 - **The uninstaller leaves `%APPDATA%\Brightfly\config.ini` in place**, so a
   reinstall keeps the last brightness values. This is intentional; delete the
   folder manually to reset.
+- **CLI output is asynchronous when the exe is called directly from a shell**
+  because it is a GUI-subsystem process: the shell may return to the prompt
+  before the text appears. The output itself is correct, and piping
+  (`brightfly probe | Out-Host`) or `cargo run -- probe` makes the shell wait.
 
 ## How to run
 
