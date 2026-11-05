@@ -145,3 +145,7 @@ Icon dibuat ulang dengan:
   identik akan berbagi nilai.
 - Build rilis tidak ditandatangani secara digital. SmartScreen bisa
   menampilkan peringatan; cocokkan hash file dengan `SHA256SUMS.txt`.
+
+## Lisensi
+
+MIT. Lihat [LICENSE](LICENSE).

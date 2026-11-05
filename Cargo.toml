@@ -3,6 +3,7 @@ name = "brightfly"
 version = "0.1.0"
 edition = "2024"
 description = "Brightness slider untuk monitor eksternal Windows 11"
+license = "MIT"
 default-run = "brightfly"
 
 [dependencies]
