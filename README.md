@@ -75,6 +75,17 @@ cargo build --release
 .\target\release\brightfly.exe
 ```
 
+Menjalankan langsung dari source:
+
+```powershell
+cargo run                 # aplikasi tray
+cargo run -- probe        # daftar monitor
+cargo run -- set 70       # set brightness
+```
+
+Hentikan instance lama dulu (`Get-Process brightfly | Stop-Process -Force`)
+sebelum `cargo run`; instance kedua hanya akan membuka flyout instance lama.
+
 `cargo test` menjalankan unit test parser config, gamma, dan layout flyout.
 
 ## Packaging
