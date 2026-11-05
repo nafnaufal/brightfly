@@ -1,13 +1,3 @@
-//! Worker thread per monitor.
-//!
-//! Panggilan DDC/CI memblokir dan tidak bisa dibatalkan. Karena itu tiap
-//! monitor mendapat thread sendiri: monitor yang menggantung tidak boleh
-//! membekukan UI atau monitor lain.
-//!
-//! Antrian sengaja diganti dengan satu slot "desired" (coalescing). Kalau
-//! pengguna menggeser slider cepat, worker hanya mengerjakan nilai terakhir,
-//! bukan seluruh riwayat.
-
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
@@ -17,7 +7,6 @@ use super::ddc::{self, RawMonitor};
 use super::gamma::{self, Ramp};
 use super::{Error, Method, MonitorInfo, State};
 
-/// Batas waktu sebelum sebuah monitor dianggap macet.
 const STUCK_MS: u128 = 2000;
 
 #[derive(Clone, Copy)]
@@ -56,8 +45,7 @@ pub struct MonitorWorker {
     device: String,
     index: u32,
     shared: Arc<Shared>,
-    /// Tidak pernah di-join: proses harus tetap bisa keluar walau ada
-    /// panggilan DDC yang menggantung.
+    // Never joined: the process must be able to exit even if a DDC call hangs.
     _join: Option<JoinHandle<()>>,
 }
 
@@ -170,7 +158,6 @@ impl MonitorWorker {
 }
 
 fn run(shared: Arc<Shared>, ctx: Ctx) {
-    // Ramp asli dibaca sekali, sebelum ada perubahan apa pun.
     let original: Option<Ramp> = if ctx.method == Method::Gamma {
         gamma::read(&ctx.device)
     } else {
@@ -227,7 +214,6 @@ fn execute(ctx: &Ctx, cmd: Cmd, original: Option<&Ramp>, current_pct: u8) -> Res
             };
             let pct = match cmd {
                 Cmd::Set(pct) => pct,
-                // Gamma tidak bisa dibaca balik; pertahankan nilai terakhir.
                 Cmd::Refresh => current_pct,
             };
             let ramp = gamma::scaled(original, gamma::factor_for(pct));
@@ -240,9 +226,6 @@ fn execute(ctx: &Ctx, cmd: Cmd, original: Option<&Ramp>, current_pct: u8) -> Res
     }
 }
 
-/// Nilai untuk monitor hasil scan: nilai yang sedang ditampilkan lebih
-/// dipercaya daripada config, dan config lebih dipercaya daripada bacaan
-/// hardware saat monitor baru muncul.
 fn resolve_pct(
     previous: &[(String, u8)],
     saved: &BTreeMap<String, u8>,
@@ -256,11 +239,8 @@ fn resolve_pct(
         .unwrap_or(monitor.pct)
 }
 
-/// Kumpulan worker untuk semua monitor yang terdeteksi.
 pub struct Supervisor {
     workers: Vec<MonitorWorker>,
-    /// Nilai terakhir dari config dan dari slider. Dipakai saat monitor baru
-    /// muncul kembali (replug / resume) sebelum worker sempat membaca nilai asli.
     saved: Mutex<BTreeMap<String, u8>>,
 }
 
@@ -276,14 +256,11 @@ impl Supervisor {
             workers: Vec::new(),
             saved: Mutex::new(BTreeMap::new()),
         };
-        // Enumerasi awal masih sinkron: supervisor harus siap sebelum message
-        // loop berjalan supaya klik tray pertama tidak menampilkan flyout kosong.
         let raw = ddc::enumerate();
         me.apply_scan(raw);
         me
     }
 
-    /// Terapkan brightness tersimpan dan jadikan fallback untuk rescan.
     pub fn apply_config(&self, values: &BTreeMap<String, u8>) {
         {
             let mut saved = self.saved.lock().unwrap_or_else(|e| e.into_inner());
@@ -301,11 +278,6 @@ impl Supervisor {
         }
     }
 
-    /// Pasang hasil enumerasi yang sudah selesai di background thread.
-    ///
-    /// Tidak ada I/O di sini: worker lama dihentikan dan worker baru dibuat,
-    /// lalu nilai sebelumnya dipertahankan supaya monitor yang sempat hilang
-    /// tidak kembali ke default.
     pub fn apply_scan(&mut self, raw: Vec<RawMonitor>) {
         let previous: Vec<(String, u8)> =
             self.workers.iter().map(|w| (w.id(), w.pct())).collect();
@@ -330,7 +302,6 @@ impl Supervisor {
         self.workers.iter().map(|w| w.info()).collect()
     }
 
-    /// Dipakai flyout per-monitor (multi monitor).
     pub fn set_pct(&self, id: &str, pct: u8) -> bool {
         let pct = pct.min(100);
         for worker in &self.workers {

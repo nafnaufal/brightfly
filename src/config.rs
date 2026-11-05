@@ -1,8 +1,3 @@
-//! Config sederhana berformat INI.
-//!
-//! Sengaja tanpa crate tambahan: file-nya kecil, formatnya tetap, dan parser
-//! manual menghindari dependency yang memperbesar binary.
-
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;

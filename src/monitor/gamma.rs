@@ -1,16 +1,9 @@
-//! Fallback redup lewat gamma ramp.
-//!
-//! Ini **bukan** backlight. Yang diubah adalah tabel output GPU, jadi layar
-//! terlihat lebih gelap tanpa benar-benar mengurangi cahaya lampu monitor.
-//! Tidak berlaku saat HDR aktif, dan di-reset saat mode display berubah.
-
 use std::ffi::c_void;
 
 use windows::core::{w, PCWSTR};
 use windows::Win32::Graphics::Gdi::{CreateDCW, DeleteDC, HDC};
 use windows::Win32::UI::ColorSystem::{GetDeviceGammaRamp, SetDeviceGammaRamp};
 
-/// 256 entri × 3 kanal (R, G, B).
 pub type Ramp = [u16; 768];
 
 fn open_dc(device: &str) -> Option<HDC> {
@@ -19,7 +12,6 @@ fn open_dc(device: &str) -> Option<HDC> {
     if dc.is_invalid() { None } else { Some(dc) }
 }
 
-/// Baca ramp saat ini sebagai titik acuan pemulihan.
 pub fn read(device: &str) -> Option<Ramp> {
     let dc = open_dc(device)?;
     let mut ramp: Ramp = [0; 768];
@@ -41,7 +33,6 @@ pub fn write(device: &str, ramp: &Ramp) -> bool {
     ok.as_bool()
 }
 
-/// Terapkan faktor 0.0–1.0 ke ramp asli.
 pub fn scaled(original: &Ramp, factor: f32) -> Ramp {
     let factor = factor.clamp(0.0, 1.0);
     if factor >= 1.0 {
@@ -54,8 +45,6 @@ pub fn scaled(original: &Ramp, factor: f32) -> Ramp {
     out
 }
 
-/// Faktor untuk sebuah persentase. 100% = ramp asli, 0% = 25% kecerahan.
-/// Batas bawah 0.25 dipilih supaya tidak menghancurkan warna dan tetap terbaca.
 pub fn factor_for(pct: u8) -> f32 {
     let p = (pct.min(100) as f32) / 100.0;
     0.25 + 0.75 * p

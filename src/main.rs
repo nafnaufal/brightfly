@@ -116,7 +116,6 @@ fn set(pct: u8) -> ExitCode {
 
     supervisor.set_all(pct);
 
-    // Beri waktu worker menyelesaikan panggilan DDC (bisa lambat).
     thread::sleep(Duration::from_millis(600));
     supervisor.refresh_all();
     thread::sleep(Duration::from_millis(400));
@@ -137,7 +136,6 @@ fn set(pct: u8) -> ExitCode {
         }
     }
 
-    // Simpan supaya sesi berikutnya memakai nilai yang sama.
     let mut config = Config::load();
     for monitor in &infos {
         config.monitors.insert(
@@ -162,10 +160,6 @@ fn set(pct: u8) -> ExitCode {
     }
 }
 
-/// Simulasi drag slider: 200 perubahan beruntun.
-///
-/// Yang diuji bukan kecepatan DDC, tapi apakah pengiriman tetap non-blocking
-/// dan apakah worker hanya mengeksekusi nilai terakhir (coalescing).
 fn stress() -> ExitCode {
     const SEND_COUNT: u32 = 200;
     const FINAL: u8 = 62;

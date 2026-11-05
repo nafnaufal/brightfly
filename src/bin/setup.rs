@@ -1,13 +1,3 @@
-//! Installer dan uninstaller native untuk Brightfly.
-//!
-//! Satu binary membawa `brightfly.exe` + `README.md` yang ditanam saat
-//! packaging (`scripts/package.ps1` mengisi `BRIGHTFLY_PAYLOAD_DIR`). Setup
-//! menyalin payload ke `%LOCALAPPDATA%\Programs\Brightfly`, lalu menyalin
-//! dirinya sendiri sebagai `uninstall.exe`. Mode uninstall dipilih dari nama
-//! file (`uninstall.exe`) atau flag `--uninstall`.
-//!
-//! Tidak ada PowerShell, MSI, atau ekstraksi ke folder temp saat instalasi.
-
 #![windows_subsystem = "windows"]
 
 use std::ffi::c_void;
@@ -103,7 +93,6 @@ fn install(args: &[String]) -> Result<(), String> {
         write_file(&dir.join("README.md"), README)?;
     }
 
-    // Salinan setup dipakai sebagai uninstaller di folder instalasi.
     let uninstaller = dir.join(UNINSTALL_NAME);
     let source = current_exe()?;
     if source != uninstaller {
@@ -166,8 +155,6 @@ fn uninstall(args: &[String]) -> Result<(), String> {
         }
     }
 
-    // Dialog ditampilkan sebelum penjadwalan: folder tidak boleh dihapus
-    // selagi uninstall.exe masih berjalan.
     if !silent(args) {
         message(
             if purge_config {
@@ -385,8 +372,7 @@ fn stop_running() {
     thread::sleep(Duration::from_millis(250));
 }
 
-/// Menghapus folder setelah proses ini keluar. `rmdir` dijalankan oleh cmd
-/// terpisah karena Windows tidak mengizinkan exe menghapus dirinya sendiri.
+// Windows cannot delete a running exe, so a detached cmd removes the folder.
 fn schedule_remove_dir(dir: &Path) {
     let command = format!(
         "/c ping -n 3 127.0.0.1 >nul & rmdir /s /q \"{}\"",

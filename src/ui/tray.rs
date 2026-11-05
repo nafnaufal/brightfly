@@ -1,8 +1,3 @@
-//! Tray icon.
-//!
-//! Memakai `NOTIFYICON_VERSION_4` supaya `Shell_NotifyIconGetRect` tersedia
-//! (dibutuhkan untuk menempatkan flyout tepat di atas icon).
-
 use std::mem::size_of;
 
 use windows::core::PCWSTR;
@@ -19,13 +14,11 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 pub const TRAY_ID: u32 = 1;
 
-/// Resource ID icon di exe (lihat `build.rs`).
 const RESOURCE_ICON: u16 = 1;
 
 pub struct Tray {
     hwnd: HWND,
     icon: HICON,
-    /// Icon dari resource harus dihancurkan; icon bawaan Windows tidak.
     owned_icon: bool,
     added: bool,
 }
@@ -68,7 +61,6 @@ impl Tray {
         })
     }
 
-    /// Posisi icon di taskbar. `None` kalau icon sedang di overflow area.
     pub fn rect(&self) -> Option<RECT> {
         let identifier = NOTIFYICONIDENTIFIER {
             cbSize: size_of::<NOTIFYICONIDENTIFIER>() as u32,
@@ -105,8 +97,6 @@ impl Drop for Tray {
     }
 }
 
-/// Muat icon aplikasi dari resource exe; fallback ke icon bawaan Windows
-/// kalau resource tidak ikut ter-embed (mis. `rc.exe` tidak tersedia).
 fn load_icon(instance: HINSTANCE) -> Option<(HICON, bool)> {
     unsafe {
         let size = GetSystemMetrics(SM_CXSMICON);
@@ -139,7 +129,6 @@ fn write_tip(buffer: &mut [u16], text: &str) {
     buffer[i] = 0;
 }
 
-/// Dipakai saat window belum punya icon tray (fallback posisi).
 pub fn cursor_anchor() -> RECT {
     let mut point = windows::Win32::Foundation::POINT::default();
     if unsafe { windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut point) }.is_err() {

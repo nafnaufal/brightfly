@@ -1,16 +1,3 @@
-# Installer per-user untuk Brightfly. Tidak butuh admin.
-#
-# Menyalin exe ke %LOCALAPPDATA%\Programs\Brightfly, membuat shortcut Start
-# Menu, mendaftarkan entri "Apps & features", dan (opsional) autostart.
-#
-# Pemakaian:
-#   .\install.ps1                 # dari folder repo: pakai target\release
-#   .\install.ps1 -NoAutostart
-#   .\install.ps1 -Source D:\unduhan\brightfly
-#
-# Dari paket zip, jalankan install.cmd (atau install.ps1) di folder yang sama
-# dengan brightfly.exe.
-
 param(
     [string]$Source,
     [switch]$NoAutostart,
@@ -51,7 +38,6 @@ function Stop-Running {
     if (-not $processes) { return }
 
     $processes | Stop-Process -Force -ErrorAction SilentlyContinue
-    # Beri waktu Windows melepas handle file sebelum exe ditimpa.
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Milliseconds 100
         if (-not (Get-Process -Name "brightfly" -ErrorAction SilentlyContinue)) { return }
@@ -66,7 +52,6 @@ function Read-AppVersion {
     return "0.0.0"
 }
 
-# Cari file pendukung di folder sumber paket, folder script, atau root repo.
 function Find-Payload {
     param([string]$File, [string]$Primary)
 
@@ -111,7 +96,6 @@ foreach ($file in $payload) {
     Copy-Item -LiteralPath $from -Destination $to -Force
 }
 
-# Shortcut Start Menu, supaya aplikasi bisa dicari lewat pencarian Windows.
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut($ShortcutPath)
 $shortcut.TargetPath = $targetExe
@@ -120,7 +104,6 @@ $shortcut.IconLocation = "$targetExe,0"
 $shortcut.Description = "Brightness slider untuk monitor eksternal"
 $shortcut.Save()
 
-# Entri di Settings > Apps > Installed apps.
 New-Item -Path $UninstallKey -Force | Out-Null
 New-ItemProperty -Path $UninstallKey -Name "DisplayName" -Value $AppName -PropertyType String -Force | Out-Null
 New-ItemProperty -Path $UninstallKey -Name "DisplayVersion" -Value $version -PropertyType String -Force | Out-Null
@@ -135,7 +118,6 @@ New-ItemProperty -Path $UninstallKey -Name "NoRepair" -Value 1 -PropertyType DWo
 $sizeKb = [int]((Get-Item -LiteralPath $targetExe).Length / 1KB)
 New-ItemProperty -Path $UninstallKey -Name "EstimatedSize" -Value $sizeKb -PropertyType DWord -Force | Out-Null
 
-# Autostart memakai nilai registry yang sama dengan yang dibaca aplikasi.
 if ($NoAutostart) {
     Remove-ItemProperty -Path $RunKey -Name $AppName -ErrorAction SilentlyContinue
     Write-Host "Autostart: tidak aktif"

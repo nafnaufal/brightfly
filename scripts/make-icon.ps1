@@ -1,8 +1,3 @@
-# Membuat assets/brightfly.ico (multi-resolusi, 32-bit BGRA).
-#
-# Ikon: kotak membulat gelap dengan matahari lavender di tengah, supaya
-# tetap terlihat di taskbar terang maupun gelap.
-
 param(
     [string]$Output = (Join-Path $PSScriptRoot "..\assets\brightfly.ico")
 )
@@ -66,9 +61,6 @@ foreach ($size in $sizes) {
     $background.Dispose()
     $g.Dispose()
 
-    # Ukuran 256 disimpan sebagai PNG: Windows mendukung frame PNG di ICO
-    # dan ukurannya jauh lebih kecil daripada DIB mentah. Ukuran kecil tetap
-    # DIB karena beberapa shell lama tidak membaca PNG di dalam ICO.
     if ($size -ge 256) {
         $pngStream = New-Object System.IO.MemoryStream
         $bmp.Save($pngStream, [System.Drawing.Imaging.ImageFormat]::Png)
@@ -76,8 +68,6 @@ foreach ($size in $sizes) {
         $pngStream.Dispose()
         $bmp.Dispose()
     } else {
-        # Ambil piksel BGRA lalu balik urutannya: DIB di dalam ICO disimpan
-        # dari bawah ke atas.
         $rect = New-Object System.Drawing.Rectangle(0, 0, $size, $size)
         $bits = $bmp.LockBits($rect, [System.Drawing.Imaging.ImageLockMode]::ReadOnly, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
         $stride = $bits.Stride
@@ -92,7 +82,7 @@ foreach ($size in $sizes) {
         }
 
         $maskStride = [int]([Math]::Ceiling($size / 32.0) * 4)
-        $andMask = New-Object byte[] ($maskStride * $size)  # semua 0: alpha yang menentukan
+        $andMask = New-Object byte[] ($maskStride * $size)
 
         $header = New-Object byte[] 40
         [Array]::Copy([BitConverter]::GetBytes([uint32]40), 0, $header, 0, 4)

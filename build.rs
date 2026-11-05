@@ -1,9 +1,3 @@
-//! Build script: menanamkan icon dan version info ke exe.
-//!
-//! `rc.exe` tidak ada di PATH pada mesin tanpa Visual Studio build tools,
-//! jadi lokasinya dicari di Windows SDK. Kalau tetap tidak ditemukan,
-//! build dilanjutkan tanpa resource dan tray memakai icon bawaan Windows.
-
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -40,11 +34,7 @@ fn main() {
     );
 }
 
-/// Membuat `setup_payload.rs` yang di-`include!` oleh `src/bin/setup.rs`.
-///
-/// Payload hanya terisi kalau `BRIGHTFLY_PAYLOAD_DIR` diarahkan ke folder yang
-/// berisi `brightfly.exe` dan `README.md`. `scripts/package.ps1` yang mengatur
-/// variabel itu; `cargo build` biasa tetap berhasil dengan payload kosong.
+// Filled by scripts/package.ps1; a plain cargo build produces an empty payload.
 fn emit_setup_payload(out_dir: &Path) {
     println!("cargo:rerun-if-env-changed=BRIGHTFLY_PAYLOAD_DIR");
 
@@ -107,7 +97,6 @@ fn link_resource(
 }
 
 fn resource_script(icon: &Path, version: &str, description: &str, original: &str) -> String {
-    // Resource ID 1 dipakai `LoadImageW` di tray.
     let icon = icon.display().to_string().replace('\\', "\\\\");
     let numeric = numeric_version(version);
 
@@ -141,7 +130,6 @@ END
     )
 }
 
-/// `1.2.3` → `1,2,3,0`; bagian non-angka diabaikan.
 fn numeric_version(version: &str) -> String {
     let mut parts = [0u16; 4];
     for (slot, part) in parts.iter_mut().zip(version.split(['.', '-', '+'])) {

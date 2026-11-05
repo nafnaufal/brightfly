@@ -1,14 +1,3 @@
-# Uninstaller per-user untuk Brightfly. Tidak butuh admin.
-#
-# Menghapus proses yang berjalan, entri autostart, shortcut Start Menu, entri
-# "Apps & features", dan folder instalasi. Config di %APPDATA%\Brightfly
-# dipertahankan kecuali memakai -PurgeConfig.
-#
-# Pemakaian:
-#   .\uninstall.ps1
-#   .\uninstall.ps1 -PurgeConfig
-#   .\uninstall.ps1 -Quiet
-
 param(
     [switch]$Quiet,
     [switch]$PurgeConfig
@@ -28,7 +17,6 @@ function Write-Step {
     if (-not $Quiet) { Write-Host $Message }
 }
 
-# Hentikan aplikasi lebih dulu supaya exe tidak terkunci.
 $processes = Get-Process -Name "brightfly" -ErrorAction SilentlyContinue
 if ($processes) {
     $processes | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -39,8 +27,6 @@ if ($processes) {
     Write-Step "Proses dihentikan."
 }
 
-# Autostart harus hilang, kalau tidak Windows mencoba menjalankan file yang
-# sudah tidak ada.
 if (Get-ItemProperty -Path $RunKey -Name $AppName -ErrorAction SilentlyContinue) {
     Remove-ItemProperty -Path $RunKey -Name $AppName -Force
     Write-Step "Entri autostart dihapus."
@@ -65,10 +51,6 @@ if ($PurgeConfig) {
     Write-Step "Config dipertahankan: $ConfigDir"
 }
 
-# Folder instalasi berisi script ini sendiri. Kalau dijalankan dari sana,
-# cmd.exe masih membaca file .cmd baris per baris dari folder itu, jadi folder
-# tidak boleh dihapus sekarang — penghapusan dijadwalkan setelah pemanggil
-# keluar. Kalau dijalankan dari repo/zip, folder aman dihapus langsung.
 $runningFromInstallDir = $PSScriptRoot -and
     ([System.IO.Path]::GetFullPath($PSScriptRoot) -eq [System.IO.Path]::GetFullPath($InstallDir))
 

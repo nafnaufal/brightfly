@@ -1,17 +1,3 @@
-//! Identitas monitor dari EDID.
-//!
-//! Device interface path yang diberikan `EnumDisplayDevicesW` memuat instance
-//! id yang dibuat Windows per koneksi:
-//!
-//! ```text
-//! \\?\DISPLAY#MSI30B9#7&21ebfe3c&0&UID24646#{e6f07b5f-...}
-//!                       ^^^^^^^^^^^^^^^^^^^^^^^ berubah kalau kabel pindah port
-//! ```
-//!
-//! Nomor seri di EDID tidak berubah, jadi kunci config diturunkan dari sana.
-//! Registry menyimpan EDID mentah per device interface di
-//! `HKLM\SYSTEM\CurrentControlSet\Enum\<class>\<hardware id>\<instance>`.
-
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::ERROR_SUCCESS;
 use windows::Win32::System::Registry::{
@@ -19,25 +5,16 @@ use windows::Win32::System::Registry::{
     REG_BINARY, REG_VALUE_TYPE,
 };
 
-/// Header 8 byte yang wajib ada di awal setiap EDID.
 const HEADER: [u8; 8] = [0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00];
 
-/// Identitas monitor yang tidak bergantung pada port koneksi.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Edid {
-    /// Kode 3 huruf PnP, mis. `MSI`.
     pub manufacturer: String,
-    /// Kode produk 16-bit dari EDID.
     pub product: u16,
-    /// Nomor seri; teks dari descriptor 0x0F, atau angka di header.
     pub serial: Option<String>,
 }
 
 impl Edid {
-    /// Kunci config, mis. `MSI30B9:PB9H304C03601`.
-    ///
-    /// Kalau monitor tidak mencantumkan nomor seri sama sekali, hasilnya hanya
-    /// kode model (`MSI30B9`) sehingga dua unit identik akan berbagi nilai.
     pub fn key(&self) -> String {
         let model = format!("{}{:04X}", self.manufacturer, self.product);
         match &self.serial {
@@ -47,10 +24,6 @@ impl Edid {
     }
 }
 
-/// Baca EDID dari registry untuk sebuah device interface path.
-///
-/// Mengembalikan `None` kalau path tidak bisa diurai, key tidak ada, atau
-/// datanya bukan EDID yang valid. Pemanggil harus punya fallback.
 pub fn read(interface_path: &str) -> Option<Vec<u8>> {
     let path = interface_path.strip_prefix(r"\\?\")?;
     let mut parts = path.split('#');
@@ -68,13 +41,11 @@ pub fn read(interface_path: &str) -> Option<Vec<u8>> {
     (bytes.len() >= 128).then_some(bytes)
 }
 
-/// Urai 128 byte pertama EDID. `None` kalau header atau kode pabrikan rusak.
 pub fn parse(bytes: &[u8]) -> Option<Edid> {
     if bytes.len() < 128 || bytes[..8] != HEADER {
         return None;
     }
 
-    // Manufacturer ID: tiga huruf 5-bit, big-endian.
     let packed = u16::from_be_bytes([bytes[8], bytes[9]]);
     let mut manufacturer = String::with_capacity(3);
     for shift in [10, 5, 0] {
@@ -88,8 +59,6 @@ pub fn parse(bytes: &[u8]) -> Option<Edid> {
     let product = u16::from_le_bytes([bytes[10], bytes[11]]);
     let number = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]);
 
-    // Teks lebih informatif daripada angka, dan banyak monitor hanya mengisi
-    // salah satunya.
     let serial = serial_text(bytes).or_else(|| (number != 0).then(|| number.to_string()));
 
     Some(Edid {
@@ -99,7 +68,6 @@ pub fn parse(bytes: &[u8]) -> Option<Edid> {
     })
 }
 
-/// Descriptor 0x0F (nomor seri sebagai teks), dicari di empat blok 18 byte.
 fn serial_text(bytes: &[u8]) -> Option<String> {
     for index in 0..4 {
         let start = 54 + index * 18;
@@ -114,7 +82,6 @@ fn serial_text(bytes: &[u8]) -> Option<String> {
     None
 }
 
-/// Batasi ke karakter yang aman dipakai sebagai nama section INI.
 fn sanitize(raw: &[u8]) -> String {
     let text: String = raw
         .iter()
@@ -157,7 +124,6 @@ fn query_binary(subkey: &str, name: &str) -> Option<Vec<u8>> {
             None,
             Some(&mut size),
         );
-        // EDID normal 128 atau 256 byte; batas ini hanya pengaman.
         if rc != ERROR_SUCCESS || kind != REG_BINARY || size == 0 || size > 4096 {
             let _ = RegCloseKey(key);
             return None;
@@ -186,11 +152,9 @@ fn query_binary(subkey: &str, name: &str) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
-    /// EDID 128 byte dengan descriptor serial teks.
     fn sample() -> Vec<u8> {
         let mut bytes = vec![0u8; 128];
         bytes[..8].copy_from_slice(&HEADER);
-        // "MSI": 13, 19, 9
         let packed: u16 = (13 << 10) | (19 << 5) | 9;
         bytes[8..10].copy_from_slice(&packed.to_be_bytes());
         bytes[10..12].copy_from_slice(&0x30B9u16.to_le_bytes());
@@ -267,7 +231,6 @@ mod tests {
 
     #[test]
     fn reads_edid_of_a_real_monitor() {
-        // Hanya berjalan di mesin uji; mesin lain boleh tidak punya monitor ini.
         let path = r"\\?\DISPLAY#MSI30B9#7&21ebfe3c&0&UID24646#{e6f07b5f-ee97-4a90-b076-33f57bf4eaa7}";
         if let Some(bytes) = read(path) {
             let edid = parse(&bytes).expect("EDID dari registry harus valid");

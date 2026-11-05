@@ -1,8 +1,3 @@
-//! Inti kontrol brightness monitor.
-//!
-//! Modul ini tidak tahu apa-apa soal UI. Semua panggilan yang memblokir
-//! dijalankan di worker thread masing-masing monitor (lihat `worker.rs`).
-
 pub mod ddc;
 pub mod edid;
 pub mod gamma;
@@ -12,15 +7,11 @@ pub use worker::Supervisor;
 
 use std::fmt;
 
-/// Cara sebuah monitor dikendalikan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Method {
-    /// Tidak bisa dikendalikan sama sekali.
     #[default]
     Unsupported,
-    /// DDC/CI VCP 0x10 — mengubah backlight asli.
     Ddc,
-    /// Gamma ramp — meredupkan output GPU, bukan backlight.
     Gamma,
 }
 
@@ -43,13 +34,10 @@ impl Method {
     }
 }
 
-/// Kondisi terakhir sebuah monitor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Ready,
-    /// Panggilan DDC melebihi batas waktu; monitor mungkin mati atau kabel lepas.
     Unresponsive,
-    /// Handle monitor hilang (unplug / display change).
     MonitorOff,
     Unsupported,
 }
@@ -65,24 +53,17 @@ impl State {
     }
 }
 
-/// Snapshot data satu monitor. Murah untuk dikirim ke UI.
 #[derive(Debug, Clone)]
 pub struct MonitorInfo {
-    /// Kunci stabil dari EDID (mis. `MSI30B9:PB9H304C03601`), atau device
-    /// interface path kalau EDID tidak terbaca.
     pub id: String,
-    /// Device interface path; berubah kalau kabel pindah port.
     pub path: String,
-    /// Nama ramah dari EDID, fallback ke `\\.\DISPLAYn`.
     pub name: String,
-    /// Nama GDI, contoh `\\.\DISPLAY1`.
     pub device: String,
     pub physical_index: u32,
     pub max_brightness: u32,
     pub method: Method,
     pub pct: u8,
     pub state: State,
-    /// Dipakai UI untuk memutuskan kapan berhenti mengirim perintah.
     #[allow(dead_code)]
     pub stuck: bool,
 }

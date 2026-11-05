@@ -1,7 +1,3 @@
-//! Entri autostart di `HKCU\...\CurrentVersion\Run`.
-//!
-//! Per-user, tanpa hak admin, dan mudah dicabut: hapus nilai "Brightfly".
-
 use std::ffi::c_void;
 
 use windows::core::{w, PCWSTR};
@@ -14,7 +10,6 @@ use windows::Win32::System::Registry::{
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
 const VALUE_NAME: PCWSTR = w!("Brightfly");
 
-/// Apakah entri autostart saat ini ada?
 pub fn is_enabled() -> bool {
     unsafe {
         RegGetValueW(
@@ -30,7 +25,6 @@ pub fn is_enabled() -> bool {
     }
 }
 
-/// Tambah atau hapus entri autostart. Mengembalikan `true` bila berhasil.
 pub fn set_enabled(enabled: bool) -> bool {
     if !enabled {
         let status = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, RUN_KEY, VALUE_NAME) };
@@ -41,7 +35,7 @@ pub fn set_enabled(enabled: bool) -> bool {
         return false;
     };
 
-    // Path dikutip supaya spasi di nama folder tidak memecah command line.
+    // Quote the path so spaces in the folder name do not split the command line.
     let mut command: Vec<u16> = Vec::with_capacity(path.len() + 3);
     command.push(b'"' as u16);
     command.extend(path.encode_utf16());

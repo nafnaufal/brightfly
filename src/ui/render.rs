@@ -1,15 +1,3 @@
-//! Renderer Direct2D dengan DC render target.
-//!
-//! Flyout digambar langsung ke HDC window setiap `WM_PAINT`. Tidak ada
-//! Direct3D, DXGI device, DirectComposition, atau acrylic. Satu-satunya
-//! resource grafis yang dipegang adalah render target Direct2D, jadi
-//! memori proses jauh lebih kecil dan tidak ada state komposisi yang bisa
-//! lepas saat window disembunyikan.
-//!
-//! Konsekuensinya: kartu sepenuhnya opaque (tidak ada blur backdrop) dan
-//! sudut membulat dipotong lewat `SetWindowRgn`, sehingga tepinya tidak
-//! di-anti-alias.
-
 use std::ffi::c_void;
 
 use windows::core::w;
@@ -35,11 +23,9 @@ use windows::Win32::System::Registry::{
     RegGetValueW, HKEY_CURRENT_USER, RRF_RT_REG_BINARY, RRF_RT_REG_DWORD,
 };
 
-/// Satu baris slider yang akan digambar.
 pub struct Row {
     pub pct: u8,
     pub enabled: bool,
-    /// Nama monitor; hanya digambar kalau ada lebih dari satu baris.
     pub name: String,
 }
 
@@ -53,20 +39,14 @@ const GAP_DIP: f32 = 10.0;
 const NUMBER_WIDTH_DIP: f32 = 28.0;
 const TRACK_HEIGHT_DIP: f32 = 4.0;
 const THUMB_RADIUS_DIP: f32 = 7.0;
-/// Tinggi pita nama monitor di atas slider saat baris lebih dari satu.
 const LABEL_HEIGHT_DIP: f32 = 16.0;
 const NAME_FONT_DIP: f32 = 12.0;
 
-/// Geometri kartu dalam piksel fisik.
-///
-/// Dipakai bersama oleh renderer dan hit-testing supaya posisi thumb yang
-/// digambar selalu sama dengan area yang bisa diklik.
 pub struct Layout {
     pub width: f32,
     pub height: f32,
     pub pad: f32,
     pub row_height: f32,
-    /// 0 kalau hanya ada satu baris (nama tidak ditampilkan).
     pub label_height: f32,
     pub track_left: f32,
     pub track_right: f32,
@@ -98,7 +78,6 @@ impl Layout {
         self.row_height * index as f32
     }
 
-    /// Atas area slider (di bawah pita nama bila ada).
     pub fn slider_top(&self, index: usize) -> f32 {
         self.row_top(index) + self.label_height
     }
@@ -107,23 +86,19 @@ impl Layout {
         self.slider_top(index) + (self.row_height - self.label_height) / 2.0
     }
 
-    /// Posisi x thumb untuk persentase tertentu.
     pub fn thumb_x(&self, pct: u8) -> f32 {
         self.track_left + (self.track_right - self.track_left) * (pct.min(100) as f32 / 100.0)
     }
 }
 
-/// Glyph "Brightness" di Segoe Fluent Icons.
 const ICON_BRIGHTNESS: &str = "\u{E706}";
 
 pub struct Theme {
     pub dark: bool,
-    /// Warna aksen sistem (RGB 0..1), dipakai untuk bagian track yang terisi.
     pub accent: [f32; 3],
 }
 
 impl Theme {
-    /// Baca tema terang/gelap dan warna aksen dari registry.
     pub fn system() -> Self {
         let dark = system_uses_dark();
         Self {
@@ -132,8 +107,6 @@ impl Theme {
         }
     }
 
-    /// Kartu opaque. Tanpa acrylic, warna inilah yang tampil apa adanya:
-    /// `#2C2C2C` di mode gelap, diukur langsung dari flyout volume Windows 11.
     fn card(&self) -> D2D1_COLOR_F {
         if self.dark {
             color(0.173, 0.173, 0.173, 1.0)
@@ -150,7 +123,6 @@ impl Theme {
         }
     }
 
-    /// Nama monitor di atas slider; lebih redup dari teks utama.
     fn secondary_text(&self) -> D2D1_COLOR_F {
         if self.dark {
             color(1.0, 1.0, 1.0, 0.72)
@@ -159,11 +131,6 @@ impl Theme {
         }
     }
 
-    /// Bagian track yang belum terisi.
-    ///
-    /// Ini token `ControlStrongFillColorDefault` milik WinUI: putih 54% di
-    /// mode gelap, hitam 45% di mode terang. Diukur langsung dari flyout
-    /// volume Windows 11 (#9F9F9F di atas kartu #2C2C2C).
     fn track(&self) -> D2D1_COLOR_F {
         if self.dark {
             color(1.0, 1.0, 1.0, 0.541)
@@ -185,7 +152,6 @@ impl Theme {
     }
 }
 
-/// `AppsUseLightTheme == 0` berarti mode gelap. Default Windows 11 gelap.
 pub fn system_uses_dark() -> bool {
     let mut value = 1u32;
     let mut size = std::mem::size_of::<u32>() as u32;
@@ -203,8 +169,6 @@ pub fn system_uses_dark() -> bool {
     status.is_ok() && value == 0
 }
 
-/// Warna aksen Windows. Paletnya disimpan sebagai 8 warna RGBA;
-/// index 1 dipakai Windows di mode gelap, index 4 di mode terang.
 fn system_accent(dark: bool) -> [f32; 3] {
     let mut palette = [0u8; 32];
     let mut size = palette.len() as u32;
@@ -230,7 +194,6 @@ fn system_accent(dark: bool) -> [f32; 3] {
         ];
     }
 
-    // Fallback: lavender khas Windows 11.
     if dark {
         [0.741, 0.729, 0.906]
     } else {
@@ -269,13 +232,11 @@ impl Renderer {
                 step!(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, None), "D2D1CreateFactory");
 
             let properties = D2D1_RENDER_TARGET_PROPERTIES {
-                // DC render target memang selalu software. Menyebutnya
-                // eksplisit mencegah Direct2D memuat driver D3D11 GPU, yang
-                // memakan puluhan MB memori hanya untuk satu kartu kecil.
+                // DC render targets are always software; stating it keeps
+                // Direct2D from loading a D3D11 driver for one small card.
                 r#type: D2D1_RENDER_TARGET_TYPE_SOFTWARE,
                 pixelFormat: D2D1_PIXEL_FORMAT {
                     format: DXGI_FORMAT_B8G8R8A8_UNORM,
-                    // Kartu opaque: tidak ada alpha yang perlu dipertahankan.
                     alphaMode: D2D1_ALPHA_MODE_IGNORE,
                 },
                 dpiX: 96.0,
@@ -302,7 +263,6 @@ impl Renderer {
         }
     }
 
-    /// Ukuran kartu dalam piksel fisik untuk jumlah baris tertentu.
     pub fn measure(rows: usize, scale: f32) -> (i32, i32) {
         let l = layout(rows, scale);
         (l.width.round() as i32, l.height.round() as i32)
@@ -331,8 +291,6 @@ impl Renderer {
             };
             let _ = value.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
             let _ = value.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-            // "100" tidak boleh pecah jadi dua baris. Lebar kolom angka sudah
-            // disisakan 28 DIP untuk tiga digit.
             let _ = value.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 
             let Ok(icon) = self.dwrite.CreateTextFormat(
@@ -368,7 +326,6 @@ impl Renderer {
         }
     }
 
-    /// Gambar seluruh kartu ke `hdc`, biasanya HDC dari `BeginPaint`.
     pub fn draw(
         &mut self,
         hdc: HDC,
@@ -399,8 +356,6 @@ impl Renderer {
             }
             self.target.BeginDraw();
 
-            // Kartu opaque. Sudut membulat sudah dipotong `SetWindowRgn`,
-            // jadi tidak perlu menggambar rounded rect di sini.
             let background = theme.card();
             let _ = self.target.Clear(Some(&background));
 
@@ -439,7 +394,6 @@ impl Renderer {
                 let band_top = top + label_height;
                 let center_y = l.row_center(index);
 
-                // Nama monitor, hanya saat ada lebih dari satu baris.
                 if label_height > 0.0 {
                     if let Some((_, _, _, name_format)) = &self.text_format {
                         self.brush.SetColor(&theme.secondary_text());
@@ -461,7 +415,6 @@ impl Renderer {
                     }
                 }
 
-                // Icon.
                 if let Some((_, _, icon, _)) = &self.text_format {
                     self.brush.SetColor(&theme.text());
                     let glyph: Vec<u16> = ICON_BRIGHTNESS.encode_utf16().collect();
@@ -481,7 +434,6 @@ impl Renderer {
                     );
                 }
 
-                // Track belakang.
                 let track = D2D1_ROUNDED_RECT {
                     rect: D2D_RECT_F {
                         left: track_left,
@@ -496,7 +448,6 @@ impl Renderer {
                 self.brush.SetColor(&base);
                 self.target.FillRoundedRectangle(&track, &self.brush);
 
-                // Bagian terisi.
                 let ratio = row.pct as f32 / 100.0;
                 let filled_right = track_left + (track_right - track_left) * ratio;
                 if row.enabled && filled_right > track_left {
@@ -514,8 +465,6 @@ impl Renderer {
                     self.target.FillRoundedRectangle(&filled, &self.brush);
                 }
 
-                // Thumb hanya muncul saat baris disentuh/di-drag, seperti flyout
-                // volume Windows yang diam tidak menampilkan handle.
                 let active = hover == Some(index) || dragging == Some(index);
                 if active {
                     let radius = THUMB_RADIUS_DIP * scale;
@@ -535,7 +484,6 @@ impl Renderer {
                     self.target.FillEllipse(&thumb, &self.brush);
                 }
 
-                // Angka persen.
                 if let Some((_, format, _, _)) = &self.text_format {
                     self.brush.SetColor(&theme.text());
                     let text: Vec<u16> = format!("{}", row.pct).encode_utf16().collect();

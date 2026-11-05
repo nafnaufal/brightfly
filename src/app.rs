@@ -1,5 +1,3 @@
-//! Controller: window tersembunyi yang memegang tray, flyout, dan supervisor.
-
 use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::process::ExitCode;
@@ -37,16 +35,11 @@ use crate::ui::tray::{self, Tray};
 
 const WM_TRAY: u32 = WM_APP + 1;
 const WM_TOGGLE: u32 = WM_APP + 2;
-/// Dikirim flyout saat slider bergerak: `wparam` = index baris, `lparam` = persen.
 pub const WM_SET_BRIGHTNESS: u32 = WM_APP + 3;
-/// Dikirim flyout saat tertutup supaya config segera disimpan.
 pub const WM_FLYOUT_HIDDEN: u32 = WM_APP + 4;
-/// Dikirim thread scan setelah enumerasi monitor selesai.
 const WM_RESCAN_DONE: u32 = WM_APP + 5;
 
-/// `NIN_KEYSELECT` tidak diekspor crate `windows`; di shellapi.h nilainya
-/// `NIN_SELECT + 1`. Klik keyboard (Enter/Space pada icon) harus diperlakukan
-/// sama dengan klik kiri.
+// Not exported by the windows crate; shellapi.h defines it as NIN_SELECT + 1.
 const NIN_KEYSELECT: u32 = NIN_SELECT + 1;
 
 const TIMER_SAVE: usize = 1;
@@ -63,7 +56,6 @@ struct Controller {
     flyout: Flyout,
     tray: Tray,
     supervisor: Supervisor,
-    /// Urutan id monitor yang sedang tampil di flyout, sejajar dengan index baris.
     shown_ids: Vec<String>,
     config: Config,
     config_dirty: bool,
@@ -81,8 +73,6 @@ impl Controller {
             self.flush_config();
             return;
         }
-        // Klik tray yang membuat flyout kehilangan fokus tidak boleh
-        // langsung membukanya lagi.
         if flyout::hidden_recently() {
             return;
         }
@@ -110,8 +100,6 @@ impl Controller {
 
         if self.config.sync {
             self.supervisor.set_all(pct);
-            // `supervisor.monitors()` masih berisi nilai lama sampai worker
-            // selesai, jadi baris lain diperbarui langsung di sini.
             self.flyout.set_all_pct(pct);
             self.store_all(pct);
         } else {
@@ -152,7 +140,6 @@ impl Controller {
         }
     }
 
-    /// Tulis config ke disk sekarang dan batalkan timer debounce.
     fn flush_config(&mut self) {
         unsafe {
             let _ = KillTimer(Some(self.hwnd), TIMER_SAVE);
@@ -230,28 +217,21 @@ impl Controller {
         }
     }
 
-    /// Monitor ditambah/dilepas atau resolusi berubah.
     fn on_display_change(&mut self) {
         self.flyout.hide();
         self.request_rescan(false);
         self.flush_config();
     }
 
-    /// Bangun kembali handle monitor setelah sleep; DDC sering kehilangan
-    /// handle fisik saat sistem tidur.
     fn on_resume(&mut self) {
         self.flyout.hide();
         self.request_rescan(true);
         self.flush_config();
     }
 
-    /// Enumerasi monitor berjalan di thread sendiri: probe DDC bisa memblokir
-    /// beberapa detik dan tidak boleh membekukan UI.
     fn request_rescan(&mut self, refresh_after: bool) {
         self.refresh_after_scan |= refresh_after;
         if self.rescanning {
-            // Scan yang sedang berjalan mungkin sudah membaca keadaan lama;
-            // ulangi sekali lagi setelah hasilnya masuk.
             self.rescan_pending = true;
             return;
         }
@@ -260,7 +240,7 @@ impl Controller {
 
     fn start_scan(&mut self) {
         let sender = self.rescan_tx.clone();
-        // HWND bukan `Send`; simpan sebagai isize dan bangun ulang di thread.
+        // HWND is not Send; pass the raw value and rebuild it in the thread.
         let hwnd = self.hwnd.0 as isize;
         self.rescanning = true;
 
@@ -305,12 +285,6 @@ impl Controller {
     }
 }
 
-/// Pindahkan nilai dari section lama (device interface path) ke kunci EDID.
-///
-/// Section lama hanya cocok selama monitor terpasang di port yang sama, jadi
-/// migrasi dicocokkan lewat kode model di dalam path (`MSI30B9`). Nilai hanya
-/// dipindahkan kalau tidak ambigu: satu section lama dan satu monitor aktif
-/// dengan model itu. Selain itu dibiarkan supaya tidak salah tempel.
 fn adopt_legacy_config(config: &mut Config, monitors: &[MonitorInfo]) -> bool {
     let mut migrated = false;
 
@@ -351,7 +325,6 @@ fn adopt_legacy_config(config: &mut Config, monitors: &[MonitorInfo]) -> bool {
     migrated
 }
 
-/// `\\?\DISPLAY#MSI30B9#7&...` → `MSI30B9`.
 fn model_of(path: &str) -> &str {
     let Some(rest) = path.strip_prefix(r"\\?\") else {
         return "";
@@ -378,7 +351,7 @@ pub fn run() -> ExitCode {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     }
 
-    // Mutex harus dibuat sebelum mencari instance lain supaya tidak ada balapan.
+    // Create the mutex before looking for another instance to avoid a race.
     let _singleton = unsafe { CreateMutexW(None, false, w!("Global\\Brightfly.Singleton")) };
     let already_running = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
 
@@ -442,14 +415,10 @@ pub fn run() -> ExitCode {
     };
 
     let mut config = Config::load();
-    // Registry adalah sumber kebenaran untuk autostart: config lama mungkin
-    // masih menyimpan nilai default tanpa entri registry yang benar-benar ada.
     config.start_with_windows = autostart::is_enabled();
 
     let supervisor = Supervisor::new();
 
-    // Kunci config sekarang berasal dari EDID; pindahkan nilai dari section
-    // lama yang masih memakai device interface path.
     if adopt_legacy_config(&mut config, &supervisor.monitors())
         && let Err(error) = config.save()
     {
@@ -542,11 +511,7 @@ unsafe extern "system" fn controller_wndproc(
                 let event = (lparam.0 as u32) & 0xFFFF;
                 let controller = &mut *pointer;
                 match event {
-                    // NOTIFYICON_VERSION_4 mengirim NIN_SELECT setelah
-                    // WM_LBUTTONUP. Menangani keduanya membuat satu klik
-                    // membuka lalu langsung menutup flyout.
                     NIN_SELECT | NIN_KEYSELECT => controller.toggle(),
-                    // WM_RBUTTONUP juga dikirim sebelum WM_CONTEXTMENU.
                     WM_CONTEXTMENU_MSG => controller.menu(),
                     _ => {}
                 }
@@ -651,8 +616,6 @@ mod tests {
 
         let monitors = [monitor("MSI30B9:PB9H304C03601", LEGACY)];
 
-        // Kunci baru menang; section lama tidak dihapus karena migrasi tidak
-        // berjalan.
         assert!(!adopt_legacy_config(&mut config, &monitors));
         assert_eq!(config.monitors["MSI30B9:PB9H304C03601"].brightness, 70);
     }

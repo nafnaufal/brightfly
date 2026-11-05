@@ -1,9 +1,3 @@
-# Membuat paket distribusi: dist/brightfly-<versi>-win64.zip
-#
-# Isi paket: brightfly.exe (portable), setup.exe (installer/uninstaller
-# native), dan README.md. Setup menanam exe + README di dalam dirinya saat
-# dibangun, jadi payload disiapkan lebih dulu di folder stage.
-
 param(
     [switch]$SkipBuild
 )
@@ -43,8 +37,6 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 Copy-Item $exe $stage
 Copy-Item (Join-Path $root "README.md") $stage
 
-# Setup selalu dibangun ulang dengan payload dari stage, termasuk saat
-# -SkipBuild dipakai (yang dilewati hanya build aplikasi).
 $env:BRIGHTFLY_PAYLOAD_DIR = $stage
 try {
     cargo build --release --bin brightfly-setup

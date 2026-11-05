@@ -1,10 +1,3 @@
-//! Window flyout: kartu dengan slider brightness per monitor.
-//!
-//! Semua konten digambar Direct2D langsung ke HDC window saat `WM_PAINT`.
-//! Tidak ada DirectComposition maupun acrylic, jadi window bisa
-//! disembunyikan dan ditampilkan ulang tanpa kehilangan isi. Sudut
-//! membulat dipotong lewat window region.
-
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::time::{Duration, Instant};
@@ -42,31 +35,21 @@ const VK_UP: usize = 0x26;
 const VK_RIGHT: usize = 0x27;
 const VK_DOWN: usize = 0x28;
 
-/// `WM_MOUSELEAVE` ada di `UI::Controls`; nilainya stabil, jadi didefinisikan
-/// lokal supaya tidak menambah fitur crate.
 const WM_MOUSELEAVE: u32 = 0x02A3;
 
-/// Klik tray yang baru saja membuka flyout tidak boleh langsung menutupnya
-/// lewat `WM_ACTIVATE(WA_INACTIVE)` atau event foreground.
+// A tray click that just opened the flyout must not close it immediately.
 const ACTIVATION_GRACE: Duration = Duration::from_millis(200);
 
-/// Dikirim hook foreground ke window flyout. `WM_APP + 6` tidak dipakai
-/// controller (`WM_APP + 1..=5`).
 const WM_OUTSIDE_FOREGROUND: u32 = 0x8000 + 6;
 
 thread_local! {
     static HIDDEN_AT: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
-    /// HWND flyout untuk hook foreground. Hook hanya memakai satu window,
-    /// jadi disimpan per thread alih-alih meneruskan pointer lewat callback.
     static HOOK_TARGET: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
-    /// Handle `SetWinEventHook` yang sedang aktif (0 kalau tidak ada).
     static HOOK: std::cell::Cell<isize> = const { std::cell::Cell::new(0) };
 }
 
 struct FlyoutData {
-    /// Window flyout itu sendiri, dipakai untuk invalidasi saat redraw.
     hwnd: HWND,
-    /// Window controller, tujuan pesan perubahan brightness.
     controller: HWND,
     renderer: Option<Renderer>,
     rows: Vec<Row>,
@@ -74,7 +57,6 @@ struct FlyoutData {
     dragging: Option<usize>,
     theme: Theme,
     scale: f32,
-    /// Langkah panah/wheel dalam persen (config `step`).
     step: u8,
     shown_at: Instant,
     tracking_mouse: bool,
@@ -91,7 +73,6 @@ impl FlyoutData {
         }
     }
 
-    /// Baris yang area track-nya mengenai titik klien `(x, y)`.
     fn row_at(&self, x: f32, y: f32) -> Option<usize> {
         let l = self.layout();
         for index in 0..self.rows.len() {
@@ -108,7 +89,6 @@ impl FlyoutData {
         None
     }
 
-    /// Ubah persentase baris sesuai posisi x, lalu kirim ke controller.
     fn drag_to(&mut self, index: usize, x: f32) {
         let l = self.layout();
         let span = (l.track_right - l.track_left).max(1.0);
@@ -143,8 +123,6 @@ impl FlyoutData {
         self.drag_to(index, x);
     }
 
-    /// Samakan semua baris tanpa menunggu worker selesai. Dipakai saat sync
-    /// aktif: nilai di `supervisor.monitors()` masih lama sampai DDC selesai.
     fn set_all_pct(&mut self, pct: u8) {
         let pct = pct.min(100);
         let mut changed = false;
@@ -267,7 +245,6 @@ impl Flyout {
         }
     }
 
-    /// Perbarui semua baris sekaligus (sync multi-monitor).
     pub fn set_all_pct(&self, pct: u8) {
         if let Some(data) = self.data() {
             data.set_all_pct(pct);
@@ -303,10 +280,6 @@ impl FlyoutData {
     }
 }
 
-/// Baru saja disembunyikan (mis. karena kehilangan fokus)?
-///
-/// Dipakai untuk mencegah flyout terbuka lagi saat user mengklik icon tray:
-/// klik itu membuat flyout kehilangan fokus lalu event tray datang sesudahnya.
 pub fn hidden_recently() -> bool {
     HIDDEN_AT.with(|cell| {
         cell.get()
@@ -315,7 +288,6 @@ pub fn hidden_recently() -> bool {
     })
 }
 
-/// Sembunyikan flyout lalu beri tahu controller supaya config segera disimpan.
 fn hide_now(hwnd: HWND, controller: HWND) {
     unwatch_foreground();
     unsafe {
@@ -330,13 +302,8 @@ fn hide_now(hwnd: HWND, controller: HWND) {
     HIDDEN_AT.with(|cell| cell.set(Some(Instant::now())));
 }
 
-/// Pasang hook foreground selama flyout tampil.
-///
-/// `WM_ACTIVATE(WA_INACTIVE)` dan `WM_KILLFOCUS` ternyata tidak dikirim saat
-/// user mengklik window lain, karena `force_foreground()` membuat window
-/// menjadi foreground tanpa state aktivasi yang normal. Event
-/// `EVENT_SYSTEM_FOREGROUND` tetap datang, dan hook hanya hidup selama flyout
-/// terbuka sehingga tidak ada beban saat idle.
+// WM_ACTIVATE(WA_INACTIVE) is not delivered when force_foreground() bypasses
+// normal activation, so the foreground event is the primary close signal.
 fn watch_foreground(hwnd: HWND) {
     unwatch_foreground();
 
@@ -355,7 +322,6 @@ fn watch_foreground(hwnd: HWND) {
     HOOK.with(|cell| cell.set(hook.0 as isize));
 }
 
-/// Lepas hook foreground yang sedang aktif, kalau ada.
 fn unwatch_foreground() {
     HOOK.with(|cell| {
         let raw = cell.replace(0);
@@ -369,10 +335,6 @@ fn unwatch_foreground() {
     HOOK_TARGET.with(|cell| cell.set(0));
 }
 
-/// Window lain menjadi foreground: minta window flyout memeriksa dirinya.
-///
-/// Hanya mengirim pesan; keputusan tutup diambil di wndproc supaya tidak
-/// mengubah state window dari dalam callback event.
 unsafe extern "system" fn foreground_changed(
     _hook: HWINEVENTHOOK,
     event: u32,
@@ -409,7 +371,6 @@ pub struct Placement {
     pub scale: f32,
 }
 
-/// Hitung posisi & ukuran dalam piksel fisik untuk monitor tempat anchor berada.
 pub fn placement(anchor: &RECT, row_count: usize) -> Placement {
     let point = POINT {
         x: (anchor.left + anchor.right) / 2,
@@ -440,7 +401,6 @@ pub fn placement(anchor: &RECT, row_count: usize) -> Placement {
     let (width, height) = Renderer::measure(row_count.max(1), scale);
     let margin = (8.0 * scale).round() as i32;
 
-    // Tengah terhadap icon tray, di atas taskbar.
     let mut x = (anchor.left + anchor.right) / 2 - width / 2;
     let mut y = anchor.top - height - margin;
 
@@ -471,10 +431,6 @@ fn apply_round_region(hwnd: HWND, width: i32, height: i32, scale: f32) {
     }
 }
 
-/// Paksa window mendapat fokus keyboard.
-///
-/// `SetForegroundWindow` ditolak Windows kalau proses pemanggil bukan penerima
-/// input terakhir. Attach ke thread foreground membuatnya lolos.
 fn force_foreground(hwnd: HWND) {
     unsafe {
         let current = GetCurrentThreadId();
@@ -546,8 +502,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 LRESULT(0)
             }
             WM_ERASEBKGND => {
-                // Seluruh area dilukis Direct2D; jangan biarkan GDI mengisi
-                // latar belakang dan menimbulkan kedip.
                 LRESULT(1)
             }
             WM_KEYDOWN if !pointer.is_null() => {
@@ -583,11 +537,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
                 LRESULT(0)
             }
-            // `SetForegroundWindow` lewat AttachThreadInput bisa membuat window
-            // menjadi foreground tanpa pernah benar-benar "aktif", sehingga
-            // `WM_ACTIVATE(WA_INACTIVE)` tidak dikirim saat user mengklik
-            // window lain. Sinyal utama karena itu event foreground di bawah;
-            // `WM_KILLFOCUS` hanya jaring pengaman.
             WM_KILLFOCUS if !pointer.is_null() => {
                 let data = &*pointer;
                 let close = IsWindowVisible(hwnd).as_bool()
@@ -598,7 +547,6 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
                 LRESULT(0)
             }
-            // User mengklik window lain atau bagian layar di luar flyout.
             WM_OUTSIDE_FOREGROUND if !pointer.is_null() => {
                 let data = &*pointer;
                 let close = IsWindowVisible(hwnd).as_bool()

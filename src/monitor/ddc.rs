@@ -1,8 +1,3 @@
-//! Enumerasi monitor dan I/O DDC/CI.
-//!
-//! Semua fungsi di sini memblokir dan harus dipanggil dari worker thread,
-//! bukan dari thread UI.
-
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::thread;
@@ -27,14 +22,10 @@ use windows::Win32::UI::WindowsAndMessaging::EDD_GET_DEVICE_INTERFACE_NAME;
 use super::edid;
 use super::{Error, Method};
 
-/// VCP code untuk brightness (MCCS standar).
 pub const VCP_BRIGHTNESS: u8 = 0x10;
 
-/// Hasil enumerasi mentah, belum diikat ke worker.
 pub struct RawMonitor {
-    /// Kunci stabil dari EDID; fallback ke device interface path.
     pub id: String,
-    /// Device interface path (berubah kalau kabel pindah port).
     pub path: String,
     pub name: String,
     pub device: String,
@@ -62,8 +53,8 @@ unsafe extern "system" fn collect_cb(
     _rect: *mut RECT,
     lparam: LPARAM,
 ) -> BOOL {
-    // SAFETY: lparam menunjuk ke Vec<isize> milik `enumerate`, yang hidup
-    // selama EnumDisplayMonitors berjalan (sinkron).
+    // SAFETY: lparam points to a Vec owned by enumerate() for the duration of
+    // the synchronous callback.
     unsafe {
         let out = &mut *(lparam.0 as *mut Vec<isize>);
         out.push(hmon.0 as isize);
@@ -71,10 +62,6 @@ unsafe extern "system" fn collect_cb(
     BOOL::from(true)
 }
 
-/// Daftar semua monitor fisik yang terpasang.
-///
-/// Monitor yang tidak mendukung DDC/CI tetap dikembalikan dengan
-/// `method == Gamma`, supaya UI masih bisa menampilkannya.
 pub fn enumerate() -> Vec<RawMonitor> {
     let mut handles: Vec<isize> = Vec::new();
     unsafe {
@@ -86,8 +73,6 @@ pub fn enumerate() -> Vec<RawMonitor> {
         );
     }
 
-    // Nama ramah dibaca sekali untuk semua monitor: `QueryDisplayConfig`
-    // mengembalikan seluruh topologi, jadi tidak perlu dipanggil per handle.
     let names = friendly_names();
 
     let mut out = Vec::new();
@@ -98,10 +83,6 @@ pub fn enumerate() -> Vec<RawMonitor> {
     out
 }
 
-/// Dua monitor dengan EDID identik (model sama, tanpa nomor seri) akan
-/// menghasilkan kunci yang sama. Beri akhiran supaya keduanya tetap punya
-/// baris sendiri. Konsekuensinya nilai bisa bertukar kalau urutan enumerasi
-/// berubah; ini hanya terjadi pada monitor yang memang tidak bisa dibedakan.
 fn disambiguate(monitors: &mut [RawMonitor]) {
     let mut seen: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
     for monitor in monitors.iter_mut() {
@@ -113,11 +94,6 @@ fn disambiguate(monitors: &mut [RawMonitor]) {
     }
 }
 
-/// Peta `\\.\DISPLAYn` → nama ramah dari EDID.
-///
-/// `EnumDisplayDevices` hanya memberi "Generic PnP Monitor". Nama asli
-/// (mis. "MSI MAG274QRF") ada di paket `DISPLAYCONFIG_TARGET_DEVICE_NAME`
-/// yang diambil lewat source device name sebagai penghubung ke `DISPLAYn`.
 fn friendly_names() -> Vec<(String, String)> {
     let mut out = Vec::new();
     unsafe {
@@ -195,8 +171,6 @@ fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
             .map(|(_, friendly)| friendly.clone())
             .unwrap_or(name);
 
-        // Ambil handle physical monitor. Kalau gagal, monitor tetap ada di
-        // daftar tapi hanya bisa dikendalikan lewat gamma.
         let mut count = 0u32;
         if GetNumberOfPhysicalMonitorsFromHMONITOR(hmon, &mut count).is_err() || count == 0 {
             found.push(RawMonitor {
@@ -235,7 +209,6 @@ fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
             let mut max = 0u32;
             let mut ok = false;
 
-            // Beberapa monitor butuh satu-dua percobaan setelah bangun/tancap.
             for attempt in 0..2 {
                 let rc =
                     GetVCPFeatureAndVCPFeatureReply(h, VCP_BRIGHTNESS, None, &mut current, Some(&mut max));
@@ -266,11 +239,6 @@ fn probe(hmonitor: isize, names: &[(String, String)]) -> Vec<RawMonitor> {
     found
 }
 
-/// Kembalikan (id stabil, device interface path, nama ramah) untuk `\\.\DISPLAYn`.
-///
-/// Id diturunkan dari EDID supaya nilai tersimpan tetap ketemu walau kabel
-/// dipindah ke port lain. Kalau EDID tidak terbaca, path dipakai sebagai id
-/// (perilaku lama).
 unsafe fn identity(device: &str) -> (String, String, String) {
     unsafe {
         let wide: Vec<u16> = device.encode_utf16().chain(std::iter::once(0)).collect();
@@ -315,11 +283,9 @@ fn to_value(pct: u8, max: u32) -> u32 {
     if max == 0 {
         return 0;
     }
-    // Pembulatan: 50% dari max 100 tetap 50, 50% dari max 255 jadi 128.
     ((pct as u64 * max as u64 + 50) / 100) as u32
 }
 
-/// Bungkus handle physical monitor untuk satu operasi, lalu lepas kembali.
 fn with_physical<R>(
     hmonitor: isize,
     index: u32,
@@ -345,7 +311,6 @@ fn with_physical<R>(
     }
 }
 
-/// Tulis brightness (0–100%).
 pub fn set_pct(hmonitor: isize, index: u32, max: u32, pct: u8) -> Result<(), Error> {
     if max == 0 {
         return Err(Error::Unsupported);
@@ -357,7 +322,6 @@ pub fn set_pct(hmonitor: isize, index: u32, max: u32, pct: u8) -> Result<(), Err
     if ok { Ok(()) } else { Err(Error::NoResponse) }
 }
 
-/// Baca brightness sekarang. Mengembalikan (persen, max).
 pub fn get_pct(hmonitor: isize, index: u32) -> Result<(u8, u32), Error> {
     let (rc, current, max) = with_physical(hmonitor, index, |h| {
         let mut current = 0u32;
