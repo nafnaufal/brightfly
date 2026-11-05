@@ -14,6 +14,8 @@ dan Direct2D, tanpa WebView, tanpa runtime XAML, dan tanpa dependency besar.
 - Nilai brightness dan pengaturan disimpan di `%APPDATA%\Brightfly\config.ini`
 - Autostart per-user lewat `HKCU\...\CurrentVersion\Run`
 
+Unduhan siap pakai ada di [Releases](https://github.com/nafnaufal/brightfly/releases).
+
 ## Instalasi
 
 Ekstrak `brightfly-<versi>-win64.zip`, lalu jalankan `setup.exe`. Installer

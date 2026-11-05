@@ -319,9 +319,13 @@ dan menerbitkan GitHub Release. Tidak ada code signing.
 - Tag harus sama dengan versi `Cargo.toml`; workflow gagal sebelum release
   kalau tidak cocok.
 - `workflow_dispatch` hanya menghasilkan artifact, tanpa release.
-- Workflow belum pernah dijalankan di GitHub Actions dari mesin ini; yang
-  diverifikasi lokal adalah perintah build/package dan blok PowerShell
-  penyiapan aset (termasuk `SHA256SUMS.txt`).
+- Run pertama: `v0.1.0` (run `41979730507`) sukses dalam 1m55s dan menerbitkan
+  <https://github.com/nafnaufal/brightfly/releases/tag/v0.1.0>. Aset dari CI:
+  `setup.exe` 607.232 B, zip 432.443 B, exe 309.760 B, `SHA256SUMS.txt` 273 B.
+  Ukuran berbeda sedikit dari build lokal karena toolchain runner berbeda.
+- Workflow memakai `actions/checkout@v7`, `actions/upload-artifact@v7`,
+  `softprops/action-gh-release@v3`, dan `Swatinem/rust-cache@v2.9.3` agar
+  tidak terkena peringatan deprecation Node 20.
 
 Cara merilis:
 
