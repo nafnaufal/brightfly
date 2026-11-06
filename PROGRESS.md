@@ -458,6 +458,9 @@ matching the Windows 11 volume flyout:
 Released as v0.2.1 with a refreshed `assets/screenshot.png` that shows the
 hovered thumb. Local artifacts: `brighty.exe` 312.320 B,
 `brighty-0.2.1-setup.exe` 2.269.802 B, `brighty-0.2.1-win64.zip` 203.014 B.
+CI release run `42272532003` published the same assets (setup 2.268.708 B,
+exe 311.808 B, zip 206.859 B) plus `SHA256SUMS.txt`; all hashes verified after
+download, and the CI-built exe passed the same hover-animation probe.
 
 ## GitHub release (CI)
 
@@ -658,6 +661,10 @@ radius 8, icon 16 px, track 4 px from x=42 to x=150, number 15 px right-aligned)
 - **`method` in config is not yet used to force a method.** Probe always determines
   DDC vs gamma; config only stores the result.
 - **`step` can only be changed via the config file**; there is no UI control yet.
+- **The installer's `autostart` task uses `checkedonce`.** On an upgrade it is
+  unchecked by default, so the `Run` value is deleted; the silent 0.2.0 → 0.2.1
+  upgrade did exactly that and it had to be restored by hand. Re-check the task
+  during an upgrade, or toggle "Start with Windows" afterwards.
 - Flyout position depends on `Shell_NotifyIconGetRect`; if the icon is in the overflow area,
   the result is less precise and untested.
 - Wheel is only active while the cursor is over the flyout (same behavior as the Windows
