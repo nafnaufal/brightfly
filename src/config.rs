@@ -41,7 +41,7 @@ impl Default for Config {
 impl Config {
     pub fn path() -> Option<PathBuf> {
         std::env::var_os("APPDATA")
-            .map(|base| PathBuf::from(base).join("Brightfly").join("config.ini"))
+            .map(|base| PathBuf::from(base).join("Brighty").join("config.ini"))
     }
 
     pub fn load() -> Self {

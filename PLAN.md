@@ -281,7 +281,7 @@ posisi, jangan hanya resize.
 
 ### 5.8 Persist & autostart
 
-- Config: `%APPDATA%\Brightfly\config.ini`
+- Config: `%APPDATA%\Brighty\config.ini`
 - Format sederhana, parser manual (tanpa serde supaya dependency tetap 1):
 
 ```ini
@@ -294,7 +294,7 @@ method=ddc
 ```
 
 - Tulis config saat aplikasi keluar, bukan tiap perubahan slider (menghindari I/O terus-menerus).
-- Autostart: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Brightfly` = path exe.
+- Autostart: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, value `Brighty` = path exe.
   Tidak perlu Task Scheduler.
 - Single instance: `CreateMutexW` bernama; kalau sudah ada, kirim pesan ke instance lama lalu keluar.
 

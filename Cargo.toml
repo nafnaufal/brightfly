@@ -1,6 +1,6 @@
 [package]
-name = "brightfly"
-version = "0.1.5"
+name = "brighty"
+version = "0.2.0"
 edition = "2024"
 description = "Brightness slider for external monitors on Windows 11"
 license = "MIT"

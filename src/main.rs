@@ -34,11 +34,11 @@ fn main() -> ExitCode {
         Some("probe") => probe(),
         Some("set") => {
             let Some(raw) = args.get(1) else {
-                eprintln!("brightfly set: expected a value from 0 to 100");
+                eprintln!("brighty set: expected a value from 0 to 100");
                 return ExitCode::from(2);
             };
             let Ok(pct) = raw.parse::<u8>() else {
-                eprintln!("brightfly set: '{raw}' is not a number from 0 to 100");
+                eprintln!("brighty set: '{raw}' is not a number from 0 to 100");
                 return ExitCode::from(2);
             };
             set(pct)
@@ -49,7 +49,7 @@ fn main() -> ExitCode {
         }
         Some("stress") => stress(),
         Some("--version") | Some("-V") => {
-            println!("brightfly {}", env!("CARGO_PKG_VERSION"));
+            println!("brighty {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
         }
         Some(other) => {
@@ -86,13 +86,13 @@ fn attach_console() {
 
 fn usage() {
     println!(
-        "brightfly {} — control the brightness of external monitors
+        "brighty {} — control the brightness of external monitors
 
 Usage:
-  brightfly probe          List monitors, control method, and current value
-  brightfly set <0..100>   Set every monitor, then read back to verify
-  brightfly stress         Send 200 rapid changes to exercise coalescing
-  brightfly --version
+  brighty probe          List monitors, control method, and current value
+  brighty set <0..100>   Set every monitor, then read back to verify
+  brighty stress         Send 200 rapid changes to exercise coalescing
+  brighty --version
 
 Without arguments the tray app starts.",
         env!("CARGO_PKG_VERSION")

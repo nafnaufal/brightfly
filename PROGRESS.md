@@ -3,7 +3,7 @@
 Updated: post-phase 5 (background-thread rescan, PNG icon, tray click fix,
 monitor identity from EDID, auto-close on outside click of the flyout, fix for
 the "100" number, the Inno Setup installer, the console-window fix, the English
-UI, and the always-visible slider thumb).
+UI, the always-visible slider thumb, and the rename to Brighty).
 
 ## Status
 
@@ -390,6 +390,43 @@ handling.
 | Unit tests | `cargo test` | 29 pass ✅ |
 | Clippy | `cargo clippy --all-targets` | same 7 bin / 8 test warnings as before ✅ |
 
+## Rename to Brighty (0.2.0)
+
+The product is now **Brighty**. The GitHub repository is still
+`nafnaufal/brightfly`, so existing links and old releases keep working, but
+everything inside the app uses the new name:
+
+- Crate and binary: `brighty`, `brighty.exe`.
+- Installer: `installer/brighty.iss`, new `AppId`, output
+  `brighty-<version>-setup.exe`, installs to `%LOCALAPPDATA%\Programs\Brighty`.
+- Config: `%APPDATA%\Brighty\config.ini`.
+- Autostart value: `Brighty` under `HKCU\...\CurrentVersion\Run`.
+- Window classes `BrightyController` / `BrightyFlyout`, mutex
+  `Global\Brighty.Singleton`, and icon file `assets/brighty.ico`.
+- Tray tooltip, window title, CLI usage, scripts, README, and release assets.
+
+This is a deliberate clean break, not a migration:
+
+- The new installer has a different `AppId`, so it does **not** replace an
+  installed Brightfly. Uninstall Brightfly first if it is still there.
+- Existing `%APPDATA%\Brightfly\config.ini` is not imported; Brighty starts
+  with defaults and creates its own config on first use.
+- Older sections of this log keep the old name because that is what shipped
+  at the time.
+
+Artifacts: `brighty.exe` 311.296 byte, `brighty-0.2.0-setup.exe` 2.272.765
+byte, `brighty-0.2.0-win64.zip` 205.942 byte.
+
+| Test | Method | Result |
+|---|---|---|
+| CLI name | `brighty --version`, `brighty help` | `brighty 0.2.0` ✅ |
+| Window title and tray | run the app, inspect the window | `Brighty` ✅ |
+| Config path | run the app, check `%APPDATA%` | `%APPDATA%\Brighty\config.ini` created ✅ |
+| Autostart value | toggle "Start with Windows" | `HKCU\...\Run` value `Brighty` ✅ |
+| Installer | silent install from `dist\` | installs `brighty.exe` in `%LOCALAPPDATA%\Programs\Brighty` ✅ |
+| Clean break | inspect after install | no Brightfly key or folder touched ✅ |
+| Unit tests | `cargo test` | 29 pass ✅ |
+
 ## GitHub release (CI)
 
 The workflow `.github/workflows/release.yml` builds the package on `windows-latest`
@@ -601,13 +638,13 @@ radius 8, icon 16 px, track 4 px from x=42 to x=150, number 15 px right-aligned)
 - **The installer requires Inno Setup 6 on the build machine.** CI installs it
   through Chocolatey; a local `scripts/package.ps1` run fails with a clear
   message if `ISCC.exe` cannot be found.
-- **The uninstaller leaves `%APPDATA%\Brightfly\config.ini` in place**, so a
+- **The uninstaller leaves `%APPDATA%\Brighty\config.ini` in place**, so a
   reinstall keeps the last brightness values. This is intentional; delete the
   folder manually to reset.
 - **CLI output is asynchronous when the exe is called directly from a shell**
   because it is a GUI-subsystem process: the shell may return to the prompt
   before the text appears. The output itself is correct, and piping
-  (`brightfly probe | Out-Host`) or `cargo run -- probe` makes the shell wait.
+  (`brighty probe | Out-Host`) or `cargo run -- probe` makes the shell wait.
 
 ## How to run
 

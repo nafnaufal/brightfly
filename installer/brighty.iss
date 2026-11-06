@@ -2,16 +2,16 @@
   #define AppVersion "0.0.0"
 #endif
 
-#define AppName "Brightfly"
-#define AppExe "brightfly.exe"
+#define AppName "Brighty"
+#define AppExe "brighty.exe"
 #define AppUrl "https://github.com/nafnaufal/brightfly"
 
 [Setup]
-AppId={{6A9791EB-03C7-4B5C-BF5C-BBC204CEF5CF}
+AppId={{507C505A-FE55-4C6E-854E-1B86CE94B930}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
-AppPublisher=Brightfly contributors
+AppPublisher=Brighty contributors
 AppPublisherURL={#AppUrl}
 AppSupportURL={#AppUrl}/issues
 AppUpdatesURL={#AppUrl}/releases
@@ -21,8 +21,8 @@ DisableProgramGroupPage=yes
 LicenseFile=..\LICENSE
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=brightfly-{#AppVersion}-setup
-SetupIconFile=..\assets\brightfly.ico
+OutputBaseFilename=brighty-{#AppVersion}-setup
+SetupIconFile=..\assets\brighty.ico
 UninstallDisplayIcon={app}\{#AppExe}
 Compression=lzma2/max
 SolidCompression=yes
@@ -50,7 +50,6 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 Type: files; Name: "{app}\uninstall.exe"
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\Brightfly"; Flags: deletekey
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue; Tasks: autostart
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "{#AppName}"; Flags: deletevalue; Tasks: not autostart
 
@@ -58,7 +57,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{cmd}"; Parameters: "/c taskkill /IM {#AppExe} /F"; Flags: runhidden; RunOnceId: "StopBrightfly"
+Filename: "{cmd}"; Parameters: "/c taskkill /IM {#AppExe} /F"; Flags: runhidden; RunOnceId: "StopBrighty"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

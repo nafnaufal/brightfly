@@ -49,7 +49,7 @@ const MENU_SYNC: usize = 1;
 const MENU_AUTOSTART: usize = 2;
 const MENU_QUIT: usize = 3;
 
-const CONTROLLER_CLASS: PCWSTR = w!("BrightflyController");
+const CONTROLLER_CLASS: PCWSTR = w!("BrightyController");
 
 struct Controller {
     hwnd: HWND,
@@ -245,7 +245,7 @@ impl Controller {
         self.rescanning = true;
 
         let spawned = thread::Builder::new()
-            .name("brightfly-scan".to_string())
+            .name("brighty-scan".to_string())
             .spawn(move || {
                 let monitors = ddc::enumerate();
                 if sender.send(monitors).is_ok() {
@@ -352,7 +352,7 @@ pub fn run() -> ExitCode {
     }
 
     // Create the mutex before looking for another instance to avoid a race.
-    let _singleton = unsafe { CreateMutexW(None, false, w!("Global\\Brightfly.Singleton")) };
+    let _singleton = unsafe { CreateMutexW(None, false, w!("Global\\Brighty.Singleton")) };
     let already_running = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
 
     if already_running {
@@ -383,7 +383,7 @@ pub fn run() -> ExitCode {
         CreateWindowExW(
             Default::default(),
             CONTROLLER_CLASS,
-            w!("Brightfly"),
+            w!("Brighty"),
             WS_OVERLAPPED,
             0,
             0,
@@ -408,7 +408,7 @@ pub fn run() -> ExitCode {
         instance,
         hwnd,
         WM_TRAY,
-        "Brightfly — brightness monitor",
+        "Brighty — brightness monitor",
     ) else {
         eprintln!("Failed to add the tray icon.");
         return ExitCode::FAILURE;

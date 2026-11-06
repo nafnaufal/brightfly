@@ -5,9 +5,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$AppName = "Brightfly"
-$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Brightfly"
-$ConfigDir = Join-Path $env:APPDATA "Brightfly"
+$AppName = "Brighty"
+$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Brighty"
+$ConfigDir = Join-Path $env:APPDATA "Brighty"
 $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName"
 $ShortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$AppName.lnk"
@@ -17,12 +17,12 @@ function Write-Step {
     if (-not $Quiet) { Write-Host $Message }
 }
 
-$processes = Get-Process -Name "brightfly" -ErrorAction SilentlyContinue
+$processes = Get-Process -Name "brighty" -ErrorAction SilentlyContinue
 if ($processes) {
     $processes | Stop-Process -Force -ErrorAction SilentlyContinue
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Milliseconds 100
-        if (-not (Get-Process -Name "brightfly" -ErrorAction SilentlyContinue)) { break }
+        if (-not (Get-Process -Name "brighty" -ErrorAction SilentlyContinue)) { break }
     }
     Write-Step "Process stopped."
 }
@@ -84,4 +84,4 @@ if (Test-Path -LiteralPath $InstallDir) {
     }
 }
 
-Write-Step "Brightfly has been uninstalled."
+Write-Step "Brighty has been uninstalled."

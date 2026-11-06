@@ -13,13 +13,13 @@ if ($manifest -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
 $version = $Matches[1]
 
 if (-not $SkipBuild) {
-    cargo build --release --bin brightfly
+    cargo build --release --bin brighty
     if ($LASTEXITCODE -ne 0) {
-        throw "cargo build --release --bin brightfly failed"
+        throw "cargo build --release --bin brighty failed"
     }
 }
 
-$exe = Join-Path $root "target\release\brightfly.exe"
+$exe = Join-Path $root "target\release\brighty.exe"
 if (-not (Test-Path $exe)) {
     throw "Exe not found: $exe"
 }
@@ -45,36 +45,36 @@ if (-not $iscc) {
 $dist = Join-Path $root "dist"
 New-Item -ItemType Directory -Path $dist -Force | Out-Null
 
-& $iscc "/DAppVersion=$version" (Join-Path $root "installer\brightfly.iss")
+& $iscc "/DAppVersion=$version" (Join-Path $root "installer\brighty.iss")
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup failed"
 }
 
-$setup = Join-Path $dist "brightfly-$version-setup.exe"
+$setup = Join-Path $dist "brighty-$version-setup.exe"
 if (-not (Test-Path $setup)) {
     throw "Installer not found: $setup"
 }
 
-$portable = Join-Path $dist "brightfly-$version.exe"
+$portable = Join-Path $dist "brighty-$version.exe"
 Copy-Item $exe $portable -Force
 
-$stage = Join-Path $dist "brightfly-$version-win64"
+$stage = Join-Path $dist "brighty-$version-win64"
 if (Test-Path $stage) {
     Remove-Item $stage -Recurse -Force
 }
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
-Copy-Item $exe (Join-Path $stage "brightfly.exe")
+Copy-Item $exe (Join-Path $stage "brighty.exe")
 Copy-Item (Join-Path $root "README.md") $stage
 Copy-Item (Join-Path $root "LICENSE") $stage
 New-Item -ItemType Directory -Path (Join-Path $stage "assets") -Force | Out-Null
 Copy-Item (Join-Path $root "assets\screenshot.png") (Join-Path $stage "assets")
 
-$zip = Join-Path $dist "brightfly-$version-win64.zip"
+$zip = Join-Path $dist "brighty-$version-win64.zip"
 if (Test-Path $zip) {
     Remove-Item $zip -Force
 }
 Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zip -CompressionLevel Optimal
 
 Get-ChildItem $dist -File |
-    Where-Object { $_.Name -like "brightfly-$version-*" } |
+    Where-Object { $_.Name -like "brighty-$version-*" } |
     Select-Object Name, Length

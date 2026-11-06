@@ -6,9 +6,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$AppName = "Brightfly"
-$ExeName = "brightfly.exe"
-$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Brightfly"
+$AppName = "Brighty"
+$ExeName = "brighty.exe"
+$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\Brighty"
 $RunKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
 $UninstallKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\$AppName"
 $ShortcutPath = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\$AppName.lnk"
@@ -30,17 +30,17 @@ function Find-Source {
         }
     }
 
-    throw "brightfly.exe not found. Run 'cargo build --release' first, or pass -Source <folder>."
+    throw "brighty.exe not found. Run 'cargo build --release' first, or pass -Source <folder>."
 }
 
 function Stop-Running {
-    $processes = Get-Process -Name "brightfly" -ErrorAction SilentlyContinue
+    $processes = Get-Process -Name "brighty" -ErrorAction SilentlyContinue
     if (-not $processes) { return }
 
     $processes | Stop-Process -Force -ErrorAction SilentlyContinue
     for ($i = 0; $i -lt 20; $i++) {
         Start-Sleep -Milliseconds 100
-        if (-not (Get-Process -Name "brightfly" -ErrorAction SilentlyContinue)) { return }
+        if (-not (Get-Process -Name "brighty" -ErrorAction SilentlyContinue)) { return }
     }
 }
 
@@ -73,7 +73,7 @@ $sourceExe = Join-Path $sourceDir $ExeName
 $targetExe = Join-Path $InstallDir $ExeName
 $version = Read-AppVersion -Path $sourceExe
 
-Write-Host "Brightfly $version"
+Write-Host "Brighty $version"
 Write-Host "  from : $sourceDir"
 Write-Host "  to   : $InstallDir"
 
@@ -128,7 +128,7 @@ if ($NoAutostart) {
 
 if (-not $NoStart) {
     Start-Process -FilePath $targetExe -WorkingDirectory $InstallDir | Out-Null
-    Write-Host "Brightfly started."
+    Write-Host "Brighty started."
 }
 
 Write-Host ""

@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const ICON_PATH: &str = "assets/brightfly.ico";
+const ICON_PATH: &str = "assets/brighty.ico";
 
 fn main() {
     println!("cargo:rerun-if-changed={ICON_PATH}");
@@ -21,7 +21,7 @@ fn main() {
     let icon = fs::canonicalize(ICON_PATH).expect("icon not found");
     let version = env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "0.0.0".into());
 
-    link_resource(&rc, &out_dir, &icon, &version, "brightfly", "Brightfly", "brightfly.exe");
+    link_resource(&rc, &out_dir, &icon, &version, "brighty", "Brighty", "brighty.exe");
 }
 
 fn link_resource(
@@ -75,9 +75,9 @@ BEGIN
     BEGIN
       VALUE "FileDescription", "{description}"
       VALUE "FileVersion", "{version}"
-      VALUE "InternalName", "brightfly"
+      VALUE "InternalName", "brighty"
       VALUE "OriginalFilename", "{original}"
-      VALUE "ProductName", "Brightfly"
+      VALUE "ProductName", "Brighty"
       VALUE "ProductVersion", "{version}"
     END
   END

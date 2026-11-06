@@ -78,7 +78,7 @@ impl MonitorWorker {
 
         let thread_shared = Arc::clone(&shared);
         let join = thread::Builder::new()
-            .name(format!("brightfly-{}", m.physical_index))
+            .name(format!("brighty-{}", m.physical_index))
             .spawn(move || run(thread_shared, ctx))
             .ok();
 

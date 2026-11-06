@@ -1,4 +1,4 @@
-# Build and release Brightfly for Windows.
+# Build and release Brighty for Windows.
 #
 # - Push a v* tag (e.g. v0.1.1)  -> build + create a GitHub Release
 # - Actions > Release > Run workflow -> build only, result is an artifact
@@ -59,9 +59,9 @@ jobs:
           }
 
           $assets = @(
-              "dist\brightfly-$version-setup.exe",
-              "dist\brightfly-$version.exe",
-              "dist\brightfly-$version-win64.zip"
+              "dist\brighty-$version-setup.exe",
+              "dist\brighty-$version.exe",
+              "dist\brighty-$version-win64.zip"
           )
           foreach ($asset in $assets) {
               if (-not (Test-Path $asset)) {
@@ -85,7 +85,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: brightfly-windows
+          name: brighty-windows
           path: |
             dist/*.zip
             dist/*.exe

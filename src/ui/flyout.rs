@@ -27,7 +27,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use crate::app::{WM_FLYOUT_HIDDEN, WM_SET_BRIGHTNESS};
 use crate::ui::render::{self, Renderer, Row, Theme};
 
-const CLASS_NAME: windows::core::PCWSTR = w!("BrightflyFlyout");
+const CLASS_NAME: windows::core::PCWSTR = w!("BrightyFlyout");
 
 const VK_ESCAPE: usize = 0x1B;
 const VK_LEFT: usize = 0x25;
@@ -167,7 +167,7 @@ impl Flyout {
             let hwnd = CreateWindowExW(
                 WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
                 CLASS_NAME,
-                w!("Brightfly"),
+                w!("Brighty"),
                 WS_POPUP,
                 0,
                 0,

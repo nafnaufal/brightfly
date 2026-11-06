@@ -8,7 +8,7 @@ use windows::Win32::System::Registry::{
 };
 
 const RUN_KEY: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const VALUE_NAME: PCWSTR = w!("Brightfly");
+const VALUE_NAME: PCWSTR = w!("Brighty");
 
 pub fn is_enabled() -> bool {
     unsafe {

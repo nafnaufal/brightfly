@@ -1,5 +1,5 @@
 param(
-    [string]$Output = (Join-Path $PSScriptRoot "..\assets\brightfly.ico")
+    [string]$Output = (Join-Path $PSScriptRoot "..\assets\brighty.ico")
 )
 
 Add-Type -AssemblyName System.Drawing
