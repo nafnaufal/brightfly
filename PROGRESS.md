@@ -462,6 +462,40 @@ CI release run `42272532003` published the same assets (setup 2.268.708 B,
 exe 311.808 B, zip 206.859 B) plus `SHA256SUMS.txt`; all hashes verified after
 download, and the CI-built exe passed the same hover-animation probe.
 
+The CI-built assets were later replaced by the local build, see "Defender false
+positive on the CI binary" below.
+
+## Defender false positive on the CI binary
+
+On 2026-11-07 the installed CI-built exe was quarantined by Microsoft Defender
+as `Trojan:Win32/Bearfoos.A!ml` (ThreatID 2147731250, definition 1.463.156.0,
+AMProductVersion 4.18.26100.4). It is a machine-learning detection, not a code
+signature: no source change corresponds to it. The local build from the same
+commit was never flagged. Known facts at the time:
+
+- CI `brighty.exe` 311.808 B, SHA256 `a1487f91...` — flagged.
+- Local `brighty.exe` 312.320 B, SHA256 `91f58c94...` — clean, including a
+  Defender custom scan (`MpCmdRun -Scan -ScanType 3 -DisableRemediation`).
+- The two binaries differ only because the runner toolchain differs; the source
+  commit is the same.
+- Defender removed the installed exe, the Start Menu shortcut, the `Run` value,
+  and the uninstall entry during remediation. Reinstalling from the local
+  installer restored all of them.
+
+Because of that, the public v0.2.1 assets were replaced with the local build:
+
+| Asset | Size | SHA256 |
+|---|---|---|
+| `brighty-0.2.1-setup.exe` | 2.269.802 B | `03583716...` |
+| `brighty-0.2.1.exe` | 312.320 B | `91f58c94...` |
+| `brighty-0.2.1-win64.zip` | 203.014 B | `adb0d69e...` |
+
+Replacement caveat: the assets no longer match the output of the release
+workflow for the `v0.2.1` tag, and a clean scan today does not guarantee the
+build stays clean after future definition updates. The real fix is code signing
+or a build that Microsoft no longer flags; the false positive was reported at
+<https://www.microsoft.com/en-us/wdsi/filesubmission>.
+
 ## GitHub release (CI)
 
 The workflow `.github/workflows/release.yml` builds the package on `windows-latest`

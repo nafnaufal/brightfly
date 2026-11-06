@@ -207,8 +207,9 @@ Regenerate the icon with:
 - Per-monitor keys come from the EDID serial number. Monitors that do not
   report a serial are only identified at the model level, so two identical
   units share the same value.
-- Release builds are not code-signed. SmartScreen may warn; verify file hashes
-  against `SHA256SUMS.txt`.
+- Release builds are not code-signed. SmartScreen may warn, and antivirus
+  machine-learning heuristics occasionally flag unsigned Rust binaries; verify
+  file hashes against `SHA256SUMS.txt` before acting on a detection.
 
 ## License
 
