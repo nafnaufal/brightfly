@@ -14,6 +14,7 @@ Direct2D: no WebView, no XAML runtime, no large dependencies.
 - English UI, tray menu, and command-line output
 - DDC/CI VCP `0x10`; gamma ramp as fallback
 - One slider row per monitor; optional sync
+- Hover/drag animation: the thumb grows inside a soft halo, like the Windows volume flyout
 - Monitor rescan on a background thread after display changes or resume
 - Per-monitor values are keyed from EDID, so they survive moving the cable to another port
 - Brightness values and settings are stored in `%APPDATA%\Brighty\config.ini`

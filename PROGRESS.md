@@ -3,7 +3,8 @@
 Updated: post-phase 5 (background-thread rescan, PNG icon, tray click fix,
 monitor identity from EDID, auto-close on outside click of the flyout, fix for
 the "100" number, the Inno Setup installer, the console-window fix, the English
-UI, the always-visible slider thumb, and the rename to Brighty).
+UI, the always-visible slider thumb, the rename to Brighty, and the animated
+hover thumb).
 
 ## Status
 
@@ -426,6 +427,33 @@ byte, `brighty-0.2.0-win64.zip` 205.942 byte.
 | Installer | silent install from `dist\` | installs `brighty.exe` in `%LOCALAPPDATA%\Programs\Brighty` ✅ |
 | Clean break | inspect after install | no Brightfly key or folder touched ✅ |
 | Unit tests | `cargo test` | 29 pass ✅ |
+
+## Animated slider thumb
+
+The thumb used to jump from 1.0x to 1.2x the moment a row was hovered. It now
+grows smoothly from a resting dot into a larger knob inside an opaque halo,
+matching the Windows 11 volume flyout:
+
+- Rest: 7 DIP dot inside a 10 DIP ring.
+- Hover or drag: 9.5 DIP dot inside a 13 DIP ring.
+- A per-row value is eased with `smoothstep` over 140 ms and driven by a 15 ms
+  timer that stops as soon as every row settles, so idle cost is unchanged.
+- The halo is opaque (card color mixed 7.5% toward the text color), so it masks
+  the filled track behind the thumb instead of tinting with the accent.
+- The icon is drawn after the thumb and the number after both, so a hovered
+  halo at 0% or 100% cannot cover them.
+- Leaving a row or releasing a drag animates back; moving straight between two
+  rows animates both at once.
+
+| Test | Method | Result |
+|---|---|---|
+| Rest state | hover away, capture the flyout | 165 halo px, 14 px dot ✅ |
+| Hover state | park the cursor on the thumb, capture | 248 halo px, 18 px dot ✅ |
+| Animation | sample the window every ~20 ms while hovering | 165 → 248 px over ~100–140 ms, monotonic ✅ |
+| Hover out | move away, capture | back to 165 / 14 ✅ |
+| Edges | 0% and 100%, capture while hovered | icon and "100" still clear, no clipping ✅ |
+| Unit tests | `cargo test` | 30 pass (new thumb-scale test) ✅ |
+| Clippy | `cargo clippy --all-targets` | same 7 bin / 8 test warnings ✅ |
 
 ## GitHub release (CI)
 

@@ -38,7 +38,10 @@ const ICON_SIZE_DIP: f32 = 20.0;
 const GAP_DIP: f32 = 10.0;
 const NUMBER_WIDTH_DIP: f32 = 28.0;
 const TRACK_HEIGHT_DIP: f32 = 4.0;
-const THUMB_RADIUS_DIP: f32 = 7.0;
+const THUMB_RADIUS_REST_DIP: f32 = 7.0;
+const THUMB_RADIUS_HOVER_DIP: f32 = 9.5;
+const THUMB_HALO_REST_DIP: f32 = 10.0;
+const THUMB_HALO_HOVER_DIP: f32 = 13.0;
 const LABEL_HEIGHT_DIP: f32 = 16.0;
 const NAME_FONT_DIP: f32 = 12.0;
 
@@ -150,6 +153,20 @@ impl Theme {
             color(0.0, 0.0, 0.0, 0.35)
         }
     }
+
+    fn thumb_halo(&self) -> D2D1_COLOR_F {
+        // Opaque so it masks the track behind the thumb, like the Windows
+        // volume flyout; a translucent fill would tint with the accent color.
+        let card = self.card();
+        let toward = self.text();
+        let amount = 0.075;
+        color(
+            card.r + (toward.r - card.r) * amount,
+            card.g + (toward.g - card.g) * amount,
+            card.b + (toward.b - card.b) * amount,
+            1.0,
+        )
+    }
 }
 
 pub fn system_uses_dark() -> bool {
@@ -203,6 +220,21 @@ fn system_accent(dark: bool) -> [f32; 3] {
 
 fn color(r: f32, g: f32, b: f32, a: f32) -> D2D1_COLOR_F {
     D2D1_COLOR_F { r, g, b, a }
+}
+
+// 0 = resting thumb, 1 = fully hovered. The curve is an S so the growth
+// starts and stops gently instead of snapping on the first frame.
+fn smoothstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn thumb_radius(t: f32) -> f32 {
+    THUMB_RADIUS_REST_DIP + (THUMB_RADIUS_HOVER_DIP - THUMB_RADIUS_REST_DIP) * t
+}
+
+fn thumb_halo_radius(t: f32) -> f32 {
+    THUMB_HALO_REST_DIP + (THUMB_HALO_HOVER_DIP - THUMB_HALO_REST_DIP) * t
 }
 
 pub struct Renderer {
@@ -330,8 +362,7 @@ impl Renderer {
         &mut self,
         hdc: HDC,
         rows: &[Row],
-        hover: Option<usize>,
-        dragging: Option<usize>,
+        thumbs: &[f32],
         theme: &Theme,
         scale: f32,
     ) {
@@ -359,7 +390,7 @@ impl Renderer {
             let background = theme.card();
             let _ = self.target.Clear(Some(&background));
 
-            self.draw_card(rows, hover, dragging, theme, scale);
+            self.draw_card(rows, thumbs, theme, scale);
 
             if let Err(error) = self.target.EndDraw(None, None) {
                 eprintln!("renderer: EndDraw failed: {error:?}");
@@ -370,8 +401,7 @@ impl Renderer {
     fn draw_card(
         &mut self,
         rows: &[Row],
-        hover: Option<usize>,
-        dragging: Option<usize>,
+        thumbs: &[f32],
         theme: &Theme,
         scale: f32,
     ) {
@@ -415,25 +445,6 @@ impl Renderer {
                     }
                 }
 
-                if let Some((_, _, icon, _)) = &self.text_format {
-                    self.brush.SetColor(&theme.text());
-                    let glyph: Vec<u16> = ICON_BRIGHTNESS.encode_utf16().collect();
-                    let rect = D2D_RECT_F {
-                        left: pad,
-                        top: band_top,
-                        right: pad + icon_size,
-                        bottom: band_top + band_height,
-                    };
-                    self.target.DrawText(
-                        &glyph,
-                        icon,
-                        &rect,
-                        &self.brush,
-                        D2D1_DRAW_TEXT_OPTIONS_NONE,
-                        DWRITE_MEASURING_MODE_NATURAL,
-                    );
-                }
-
                 let track = D2D1_ROUNDED_RECT {
                     rect: D2D_RECT_F {
                         left: track_left,
@@ -465,11 +476,26 @@ impl Renderer {
                     self.target.FillRoundedRectangle(&filled, &self.brush);
                 }
 
-                let active = hover == Some(index) || dragging == Some(index);
-                let radius = THUMB_RADIUS_DIP * scale * if active { 1.2 } else { 1.0 };
+                let t = smoothstep(thumbs.get(index).copied().unwrap_or(0.0));
+                let center_x = filled_right.max(track_left).min(track_right);
+
+                let halo_radius = thumb_halo_radius(t) * scale;
+                let halo = D2D1_ELLIPSE {
+                    point: windows_numerics::Vector2 {
+                        X: center_x,
+                        Y: center_y,
+                    },
+                    radiusX: halo_radius,
+                    radiusY: halo_radius,
+                };
+                let halo_color = theme.thumb_halo();
+                self.brush.SetColor(&halo_color);
+                self.target.FillEllipse(&halo, &self.brush);
+
+                let radius = thumb_radius(t) * scale;
                 let thumb = D2D1_ELLIPSE {
                     point: windows_numerics::Vector2 {
-                        X: filled_right.max(track_left).min(track_right),
+                        X: center_x,
                         Y: center_y,
                     },
                     radiusX: radius,
@@ -484,6 +510,27 @@ impl Renderer {
                 };
                 self.brush.SetColor(&thumb_color);
                 self.target.FillEllipse(&thumb, &self.brush);
+
+                // Drawn after the thumb so a hovered halo at 0% never covers
+                // the icon's edge.
+                if let Some((_, _, icon, _)) = &self.text_format {
+                    self.brush.SetColor(&theme.text());
+                    let glyph: Vec<u16> = ICON_BRIGHTNESS.encode_utf16().collect();
+                    let rect = D2D_RECT_F {
+                        left: pad,
+                        top: band_top,
+                        right: pad + icon_size,
+                        bottom: band_top + band_height,
+                    };
+                    self.target.DrawText(
+                        &glyph,
+                        icon,
+                        &rect,
+                        &self.brush,
+                        D2D1_DRAW_TEXT_OPTIONS_NONE,
+                        DWRITE_MEASURING_MODE_NATURAL,
+                    );
+                }
 
                 if let Some((_, format, _, _)) = &self.text_format {
                     self.brush.SetColor(&theme.text());
@@ -539,5 +586,21 @@ mod tests {
         assert_eq!(l.label_height, 24.0);
         assert_eq!(l.row_height, 96.0);
         assert_eq!(l.height, 192.0);
+    }
+
+    #[test]
+    fn thumb_grows_between_rest_and_hover() {
+        assert_eq!(smoothstep(0.0), 0.0);
+        assert_eq!(smoothstep(1.0), 1.0);
+        assert_eq!(smoothstep(-1.0), 0.0);
+        assert_eq!(smoothstep(2.0), 1.0);
+        assert!(smoothstep(0.5) > 0.4 && smoothstep(0.5) < 0.6);
+
+        assert_eq!(thumb_radius(0.0), THUMB_RADIUS_REST_DIP);
+        assert_eq!(thumb_radius(1.0), THUMB_RADIUS_HOVER_DIP);
+        assert_eq!(thumb_halo_radius(0.0), THUMB_HALO_REST_DIP);
+        assert_eq!(thumb_halo_radius(1.0), THUMB_HALO_HOVER_DIP);
+        assert!(thumb_halo_radius(0.0) > thumb_radius(0.0));
+        assert!(thumb_halo_radius(1.0) > thumb_radius(1.0));
     }
 }

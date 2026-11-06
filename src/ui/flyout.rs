@@ -16,12 +16,13 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, GetCursorPos,
-    GetForegroundWindow, GetWindowThreadProcessId, IsWindowVisible, LoadCursorW, PostMessageW,
-    RegisterClassW, SetForegroundWindow, SetWindowPos, ShowWindow, CS_DROPSHADOW,
-    EVENT_SYSTEM_FOREGROUND, HWND_TOPMOST, IDC_ARROW, SWP_NOACTIVATE, SW_HIDE, SW_SHOW, WA_INACTIVE,
-    WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_ACTIVATE, WM_DESTROY, WM_ERASEBKGND,
-    WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT,
-    WM_SETCURSOR, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    GetForegroundWindow, GetWindowThreadProcessId, IsWindowVisible, KillTimer, LoadCursorW,
+    PostMessageW, RegisterClassW, SetForegroundWindow, SetTimer, SetWindowPos, ShowWindow,
+    CS_DROPSHADOW, EVENT_SYSTEM_FOREGROUND, HWND_TOPMOST, IDC_ARROW, SWP_NOACTIVATE, SW_HIDE,
+    SW_SHOW, WA_INACTIVE, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_ACTIVATE, WM_DESTROY,
+    WM_ERASEBKGND, WM_KEYDOWN, WM_KILLFOCUS, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    WM_MOUSEWHEEL, WM_PAINT, WM_SETCURSOR, WM_TIMER, WNDCLASSW, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP,
 };
 
 use crate::app::{WM_FLYOUT_HIDDEN, WM_SET_BRIGHTNESS};
@@ -36,6 +37,11 @@ const VK_RIGHT: usize = 0x27;
 const VK_DOWN: usize = 0x28;
 
 const WM_MOUSELEAVE: u32 = 0x02A3;
+
+const ANIM_TIMER: usize = 1;
+const ANIM_FRAME_MS: u32 = 15;
+// Time for the thumb to go from rest to hover (and back).
+const ANIM_DURATION_SECS: f32 = 0.14;
 
 // A tray click that just opened the flyout must not close it immediately.
 const ACTIVATION_GRACE: Duration = Duration::from_millis(200);
@@ -53,6 +59,8 @@ struct FlyoutData {
     controller: HWND,
     renderer: Option<Renderer>,
     rows: Vec<Row>,
+    // Per row: 0.0 = resting thumb, 1.0 = hovered/dragged. Animated over time.
+    thumbs: Vec<f32>,
     hover: Option<usize>,
     dragging: Option<usize>,
     theme: Theme,
@@ -60,6 +68,8 @@ struct FlyoutData {
     step: u8,
     shown_at: Instant,
     tracking_mouse: bool,
+    anim_timer: bool,
+    anim_last: Instant,
 }
 
 impl FlyoutData {
@@ -101,8 +111,64 @@ impl FlyoutData {
         let hover = self.row_at(point.x as f32, point.y as f32);
         if hover != self.hover {
             self.hover = hover;
+            self.ensure_anim();
             self.redraw();
         }
+    }
+
+    fn thumb_target(&self, index: usize) -> f32 {
+        if self.hover == Some(index) || self.dragging == Some(index) {
+            1.0
+        } else {
+            0.0
+        }
+    }
+
+    fn ensure_anim(&mut self) {
+        if self.anim_timer {
+            return;
+        }
+        self.anim_timer = true;
+        self.anim_last = Instant::now();
+        unsafe {
+            SetTimer(Some(self.hwnd), ANIM_TIMER, ANIM_FRAME_MS, None);
+        }
+    }
+
+    fn stop_anim(&mut self) {
+        if !self.anim_timer {
+            return;
+        }
+        self.anim_timer = false;
+        unsafe {
+            let _ = KillTimer(Some(self.hwnd), ANIM_TIMER);
+        }
+    }
+
+    // Advance every thumb toward its target. Returns true while any thumb is
+    // still moving, so the caller can kill the timer once everything settles.
+    fn animate(&mut self) -> bool {
+        let now = Instant::now();
+        let dt = now.duration_since(self.anim_last).as_secs_f32().min(0.05);
+        self.anim_last = now;
+        let step = dt / ANIM_DURATION_SECS;
+
+        let mut moving = false;
+        for index in 0..self.thumbs.len() {
+            let target = self.thumb_target(index);
+            let value = &mut self.thumbs[index];
+            if *value < target {
+                *value = (*value + step).min(target);
+            } else if *value > target {
+                *value = (*value - step).max(target);
+            }
+            if (*value - target).abs() > 0.001 {
+                moving = true;
+            }
+        }
+
+        self.redraw();
+        moving
     }
 
     fn drag_to(&mut self, index: usize, x: f32) {
@@ -185,6 +251,7 @@ impl Flyout {
                 controller,
                 renderer: None,
                 rows: Vec::new(),
+                thumbs: Vec::new(),
                 hover: None,
                 dragging: None,
                 theme: Theme::system(),
@@ -192,6 +259,8 @@ impl Flyout {
                 step: 2,
                 shown_at: Instant::now(),
                 tracking_mouse: false,
+                anim_timer: false,
+                anim_last: Instant::now(),
             });
             windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
                 hwnd,
@@ -232,12 +301,15 @@ impl Flyout {
         }
 
         data.rows = rows;
+        data.thumbs.clear();
+        data.thumbs.resize(data.rows.len(), 0.0);
         data.hover = None;
         data.dragging = None;
         data.scale = placement.scale;
         data.theme = Theme::system();
         data.step = step.max(1);
         data.shown_at = Instant::now();
+        data.stop_anim();
 
         data.ensure_renderer();
         data.sync_hover_to_cursor();
@@ -253,6 +325,7 @@ impl Flyout {
 
     pub fn hide(&self) {
         if let Some(data) = self.data() {
+            data.stop_anim();
             hide_now(self.hwnd, data.controller);
         } else {
             unsafe {
@@ -508,8 +581,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                         renderer.draw(
                             hdc,
                             &data.rows,
-                            data.hover,
-                            data.dragging,
+                            &data.thumbs,
                             &data.theme,
                             data.scale,
                         );
@@ -525,6 +597,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let data = &mut *pointer;
                 match wparam.0 {
                     VK_ESCAPE => {
+                        data.stop_anim();
                         hide_now(hwnd, data.controller);
                     }
                     VK_LEFT | VK_DOWN | VK_RIGHT | VK_UP => {
@@ -547,30 +620,40 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
                 LRESULT(0)
             }
+            WM_TIMER if !pointer.is_null() && wparam.0 == ANIM_TIMER => {
+                let data = &mut *pointer;
+                if !data.animate() {
+                    data.stop_anim();
+                }
+                LRESULT(0)
+            }
             WM_ACTIVATE if !pointer.is_null() => {
                 let active = (wparam.0 & 0xFFFF) as u32;
                 if active == WA_INACTIVE && (*pointer).shown_at.elapsed() >= ACTIVATION_GRACE {
+                    (*pointer).stop_anim();
                     hide_now(hwnd, (*pointer).controller);
                 }
                 LRESULT(0)
             }
             WM_KILLFOCUS if !pointer.is_null() => {
-                let data = &*pointer;
+                let data = &mut *pointer;
                 let close = IsWindowVisible(hwnd).as_bool()
                     && data.shown_at.elapsed() >= ACTIVATION_GRACE;
                 let controller = data.controller;
                 if close {
+                    data.stop_anim();
                     hide_now(hwnd, controller);
                 }
                 LRESULT(0)
             }
             WM_OUTSIDE_FOREGROUND if !pointer.is_null() => {
-                let data = &*pointer;
+                let data = &mut *pointer;
                 let close = IsWindowVisible(hwnd).as_bool()
                     && data.shown_at.elapsed() >= ACTIVATION_GRACE
                     && GetForegroundWindow() != hwnd;
                 let controller = data.controller;
                 if close {
+                    data.stop_anim();
                     hide_now(hwnd, controller);
                 }
                 LRESULT(0)
@@ -604,6 +687,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
 
                 if dirty {
+                    data.ensure_anim();
                     data.redraw();
                 }
                 LRESULT(0)
@@ -612,6 +696,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let data = &mut *pointer;
                 data.tracking_mouse = false;
                 if data.dragging.is_none() && data.hover.take().is_some() {
+                    data.ensure_anim();
                     data.redraw();
                 }
                 LRESULT(0)
@@ -624,6 +709,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     data.dragging = Some(index);
                     data.hover = Some(index);
                     data.drag_to(index, x);
+                    data.ensure_anim();
                     data.redraw();
                 }
                 LRESULT(0)
@@ -632,6 +718,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let data = &mut *pointer;
                 if data.dragging.take().is_some() {
                     let _ = ReleaseCapture();
+                    data.ensure_anim();
                     data.redraw();
                 }
                 LRESULT(0)
@@ -639,6 +726,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             windows::Win32::UI::WindowsAndMessaging::WM_CAPTURECHANGED if !pointer.is_null() => {
                 let data = &mut *pointer;
                 if data.dragging.take().is_some() {
+                    data.ensure_anim();
                     data.redraw();
                 }
                 LRESULT(0)
@@ -665,6 +753,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_DESTROY => {
                 unwatch_foreground();
                 if !pointer.is_null() {
+                    (*pointer).stop_anim();
                     drop(Box::from_raw(pointer));
                     windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
                         hwnd,
