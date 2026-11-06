@@ -455,6 +455,10 @@ matching the Windows 11 volume flyout:
 | Unit tests | `cargo test` | 30 pass (new thumb-scale test) ✅ |
 | Clippy | `cargo clippy --all-targets` | same 7 bin / 8 test warnings ✅ |
 
+Released as v0.2.1 with a refreshed `assets/screenshot.png` that shows the
+hovered thumb. Local artifacts: `brighty.exe` 312.320 B,
+`brighty-0.2.1-setup.exe` 2.269.802 B, `brighty-0.2.1-win64.zip` 203.014 B.
+
 ## GitHub release (CI)
 
 The workflow `.github/workflows/release.yml` builds the package on `windows-latest`
