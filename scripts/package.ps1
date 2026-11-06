@@ -66,6 +66,8 @@ New-Item -ItemType Directory -Path $stage -Force | Out-Null
 Copy-Item $exe (Join-Path $stage "brightfly.exe")
 Copy-Item (Join-Path $root "README.md") $stage
 Copy-Item (Join-Path $root "LICENSE") $stage
+New-Item -ItemType Directory -Path (Join-Path $stage "assets") -Force | Out-Null
+Copy-Item (Join-Path $root "assets\screenshot.png") (Join-Path $stage "assets")
 
 $zip = Join-Path $dist "brightfly-$version-win64.zip"
 if (Test-Path $zip) {

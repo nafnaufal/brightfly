@@ -36,6 +36,7 @@ SetupLogging=yes
 Source: "..\target\release\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\screenshot.png"; DestDir: "{app}\assets"; Flags: ignoreversion
 
 [Tasks]
 Name: "autostart"; Description: "Start {#AppName} when I sign in"; GroupDescription: "Additional tasks:"; Flags: checkedonce

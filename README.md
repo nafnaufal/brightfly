@@ -1,5 +1,9 @@
 # Brightfly
 
+<p align="center">
+  <img src="assets/screenshot.png" alt="Brightfly flyout with the brightness slider, shown above the Windows taskbar" width="600">
+</p>
+
 Brightness slider for external monitors on Windows 11, with a flyout that
 mirrors the Windows volume flyout. Written with native Rust + Win32 and
 Direct2D: no WebView, no XAML runtime, no large dependencies.
@@ -147,7 +151,7 @@ produces three files in `dist\`:
 
 - `brightfly-<version>-setup.exe` â€” the wizard installer
 - `brightfly-<version>.exe` â€” portable single executable
-- `brightfly-<version>-win64.zip` â€” portable exe + `README.md` + `LICENSE`
+- `brightfly-<version>-win64.zip` â€” portable exe + `README.md` + `LICENSE` + `assets/screenshot.png`
 
 The script finds `ISCC.exe` through `%ISCC%`, `PATH`, or the default Inno Setup
 install folder. Installation and uninstallation do not use admin; both only
